@@ -2296,8 +2296,8 @@ class LauncherApp(ctk.CTk):
             r.pack(fill="x", padx=12, pady=2)
             ctk.CTkLabel(r, text=name, font=FONT).pack(side="left")
             if name in self._unread:
-                ctk.CTkLabel(r, text="", width=10, height=10,
-                             corner_radius=5, fg_color="#e05252"
+                ctk.CTkLabel(r, text="●", font=FONT,
+                             text_color="#e05252"
                              ).pack(side="left", padx=(8, 0))
             ctk.CTkButton(
                 r, text="Remove", width=70, font=FONT_SMALL,
@@ -2370,6 +2370,8 @@ class LauncherApp(ctk.CTk):
         if friend in self._unread:
             self._unread.discard(friend)
             self._refresh_friends_badge()
+            if getattr(self, "_active_page", "") == "friends":
+                self._render_friends()
         dlg = ctk.CTkToplevel(self)
         dlg.title(f"Chat - {friend}")
         dlg.geometry("460x520")
@@ -2418,7 +2420,7 @@ class LauncherApp(ctk.CTk):
                         state["since"] = max(m["id"] for m in msgs)
                         self.ui_call(lambda: [render_msg(m) for m in msgs])
                 if state["open"]:
-                    dlg.after(2500, poll)
+                    dlg.after(1500, poll)
             threading.Thread(target=work, daemon=True).start()
 
         def send_msg():
@@ -3731,9 +3733,9 @@ class LauncherApp(ctk.CTk):
             return
         dot = self._nav_dots.get(name)
         if on and dot is None:
-            dot = ctk.CTkLabel(btn, text="", width=12, height=12,
-                               corner_radius=6, fg_color="#e05252")
-            dot.place(relx=1.0, x=-16, rely=0.5, anchor="e")
+            dot = ctk.CTkLabel(btn, text="●", font=FONT_BOLD,
+                               text_color="#e05252")
+            dot.place(relx=1.0, x=-14, rely=0.5, anchor="e")
             self._nav_dots[name] = dot
         elif not on and dot is not None:
             dot.place_forget()
@@ -3755,7 +3757,7 @@ class LauncherApp(ctk.CTk):
     def _msg_poll(self):
         """Global inbox watch: new friend requests + unread messages,
         independent of which page is open. Every 15s."""
-        self.after(15000, self._msg_poll)
+        self.after(8000, self._msg_poll)
         user = users.current_user()
         if not user or not user.get("token"):
             if self._unread or self._new_requests:
@@ -3803,13 +3805,15 @@ class LauncherApp(ctk.CTk):
         if changed:
             self.settings["read_msgs"] = self._last_read
             config.save_settings(self.settings)
-        grew = False
+        before = len(self._unread)
+        self._unread.difference_update(self._chat_open)
+        shrank = len(self._unread) != before
         for f in unread:
             if f not in self._chat_open and f not in self._unread:
                 self._unread.add(f)
-                grew = True
         self._refresh_friends_badge()
-        if grew and getattr(self, "_active_page", "") == "friends":
+        if (shrank or self._unread - set(unread)) \
+                and getattr(self, "_active_page", "") == "friends":
             self._render_friends()
 
     def _on_configure(self, event):
