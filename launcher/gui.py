@@ -642,88 +642,197 @@ class LauncherApp(ctk.CTk):
         scr = self.dash_scroll
         for w in scr.winfo_children():
             w.destroy()
+        FONT_H1 = ctk.CTkFont(family="Segoe UI", size=17, weight="bold")
+        FONT_STAT = ctk.CTkFont(family="Segoe UI", size=15, weight="bold")
 
-        # ---- jump back in ----
+        cols = ctk.CTkFrame(scr, fg_color="transparent")
+        cols.pack(fill="both", expand=True, padx=4, pady=4)
+        cols.grid_columnconfigure(0, weight=3)
+        cols.grid_columnconfigure(1, weight=2)
+        left = ctk.CTkFrame(cols, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="new", padx=(0, 6))
+        right = ctk.CTkFrame(cols, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="new", padx=(6, 0))
+
         recent = sorted(self.instances,
                         key=lambda i: -i.get("last_played", 0))
-        inst = next((i for i in recent if i.get("last_played")), None)
-        card = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
-        card.pack(fill="x", pady=4, padx=4)
-        if inst:
-            self._instance_icon_box(card, inst, 56).pack(
-                side="left", padx=14, pady=14)
-            info = ctk.CTkFrame(card, fg_color="transparent")
-            info.pack(side="left", fill="x", expand=True, pady=10)
-            ctk.CTkLabel(info, text="JUMP BACK IN", font=FONT_SMALL,
-                         text_color=("gray35", "gray60")).pack(anchor="w")
-            ctk.CTkLabel(info, text=inst.get("name", "Instance"),
-                         font=FONT_BOLD).pack(anchor="w")
-            secs = int(inst.get("playtime_secs", 0) or 0)
-            meta = inst["mc_version"]
+        hero = next((i for i in self.instances if i.get("pinned")), None) \
+            or next((i for i in recent if i.get("last_played")), None)
+
+        # ---- hero card ----
+        h = ctk.CTkFrame(left, fg_color=PALETTE["card"], corner_radius=10)
+        h.pack(fill="x", pady=(0, 10))
+        ctk.CTkFrame(h, width=4, fg_color=PALETTE["accent"],
+                     corner_radius=2).pack(side="left", fill="y")
+        if hero:
+            self._instance_icon_box(h, hero, 60).pack(
+                side="left", padx=(14, 12), pady=14)
+            info = ctk.CTkFrame(h, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True)
+            ctk.CTkLabel(
+                info, font=FONT_SMALL,
+                text="PINNED" if hero.get("pinned") else "CONTINUE PLAYING",
+                text_color=("gray35", "gray60")).pack(anchor="w")
+            ctk.CTkLabel(info, text=hero.get("name", "Instance"),
+                         font=FONT_H1).pack(anchor="w")
+            meta = (hero["mc_version"] + "  ·  " +
+                    core.LOADER_NAMES.get(hero.get("loader_id"),
+                                          hero.get("loader_id", "")))
+            secs = int(hero.get("playtime_secs", 0) or 0)
             if secs:
                 meta += f"  ·  {self._fmt_duration(secs)} played"
-            meta += f"  ·  {self._fmt_last_played(inst.get('last_played', 0))}"
+            if hero.get("last_played"):
+                meta += f"  ·  {self._fmt_last_played(hero['last_played'])}"
             ctk.CTkLabel(info, text=meta, font=FONT_SMALL,
-                         text_color=("gray35", "gray60")).pack(anchor="w")
-            ctk.CTkButton(card, text="Play", width=90, height=32,
-                          font=FONT_BOLD,
-                          fg_color=("#1a7f37", "#1a7f37"),
-                          hover_color=("#25a34a", "#25a34a"),
-                          command=lambda i=inst: self._instance_play(i)
-                          ).pack(side="right", padx=14)
+                         text_color=("gray35", "gray60")
+                         ).pack(anchor="w", pady=(2, 0))
+            ctk.CTkButton(
+                h, text="Play", width=104, height=38, font=FONT_BOLD,
+                corner_radius=8,
+                fg_color=("#1a7f37", "#1a7f37"),
+                hover_color=("#25a34a", "#25a34a"),
+                command=lambda i=hero: self._instance_play(i)
+                ).pack(side="right", padx=16)
         else:
-            ctk.CTkLabel(card, text="Nothing played yet - pick a version "
-                                    "on the Play tab",
-                         font=FONT, text_color=("gray35", "gray60")
-                         ).pack(pady=18)
+            info = ctk.CTkFrame(h, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True, pady=18)
+            ctk.CTkLabel(info, text="Welcome back",
+                         font=FONT_H1).pack(anchor="w", padx=(0, 14))
+            ctk.CTkLabel(info, font=FONT_SMALL,
+                         text="Create an instance or pick a "
+                              "version to start playing",
+                         text_color=("gray35", "gray60")
+                         ).pack(anchor="w", pady=(2, 0))
+            ctk.CTkButton(
+                h, text="Play", width=104, height=38, font=FONT_BOLD,
+                corner_radius=8, fg_color=PALETTE["accent"],
+                command=lambda: self._show_page("play")
+                ).pack(side="right", padx=16)
 
-        # ---- friends online ----
-        fcard = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
-        fcard.pack(fill="x", pady=4, padx=4)
-        ctk.CTkLabel(fcard, text="Friends online", font=FONT_BOLD
-                     ).pack(anchor="w", padx=12, pady=(10, 2))
-        user = users.current_user()
+        # ---- stat tiles ----
         pres = getattr(self, "_friends_presence", {}) or {}
         online = {n: p for n, p in pres.items()
                   if p.get("state") in ("game", "launcher")}
+        total_secs = sum(int(i.get("playtime_secs", 0) or 0)
+                         for i in self.instances)
+        stats = ctk.CTkFrame(left, fg_color="transparent")
+        stats.pack(fill="x", pady=(0, 10))
+        stats.grid_columnconfigure((0, 1, 2), weight=1, uniform="st")
+
+        def stat_tile(col, value, label, target):
+            c = ctk.CTkFrame(stats, fg_color=PALETTE["card"],
+                             corner_radius=10)
+            c.grid(row=0, column=col, sticky="nsew", padx=3)
+            ctk.CTkLabel(c, text=value, font=FONT_STAT).pack(pady=(10, 0))
+            ctk.CTkLabel(c, text=label, font=FONT_SMALL,
+                         text_color=("gray35", "gray60")
+                         ).pack(pady=(0, 10))
+            try:
+                c.configure(cursor="hand2")
+                for w_ in c.winfo_children():
+                    w_.configure(cursor="hand2")
+                    w_.bind("<Button-1>",
+                            lambda e, t=target: self._show_page(t))
+                c.bind("<Button-1>",
+                       lambda e, t=target: self._show_page(t))
+            except Exception:
+                pass
+
+        stat_tile(0, str(len(self.instances)), "INSTANCES", "instances")
+        stat_tile(1, self._fmt_duration(total_secs) if total_secs else "0m",
+                  "TIME PLAYED", "instances")
+        stat_tile(2, str(len(online)), "FRIENDS ONLINE", "friends")
+
+        # ---- recently played mini-tiles ----
+        others = [i for i in recent if i is not hero][:4]
+        if others:
+            ctk.CTkLabel(left, text="RECENTLY PLAYED", font=FONT_SMALL,
+                         text_color=("gray35", "gray60")
+                         ).pack(anchor="w", padx=6, pady=(0, 4))
+            row = ctk.CTkFrame(left, fg_color="transparent")
+            row.pack(fill="x", pady=(0, 10))
+            row.grid_columnconfigure(tuple(range(len(others))),
+                                     weight=1, uniform="mini")
+            for idx, inst in enumerate(others):
+                mini = ctk.CTkFrame(row, fg_color=PALETTE["card"],
+                                    corner_radius=10)
+                mini.grid(row=0, column=idx, sticky="nsew", padx=3)
+                self._instance_icon_box(mini, inst, 34).pack(pady=(10, 4))
+                ctk.CTkLabel(mini, text=inst.get("name", "Instance"),
+                             font=FONT_SMALL).pack(padx=8)
+                ctk.CTkLabel(mini, text=inst["mc_version"],
+                             font=FONT_SMALL,
+                             text_color=("gray35", "gray60")
+                             ).pack(padx=8)
+                ctk.CTkButton(
+                    mini, text="Play", height=24, font=FONT_SMALL,
+                    fg_color=PALETTE["muted"],
+                    hover_color=PALETTE["muted_hover"],
+                    command=lambda i=inst: self._instance_play(i)
+                    ).pack(pady=(2, 10))
+                for w_ in (mini,) + tuple(mini.winfo_children()):
+                    if not isinstance(w_, ctk.CTkButton):
+                        try:
+                            w_.configure(cursor="hand2")
+                            w_.bind(
+                                "<Button-1>",
+                                lambda e, i=inst: self._instance_play(i))
+                        except Exception:
+                            pass
+
+        # ---- friends online (right column) ----
+        fcard = ctk.CTkFrame(right, fg_color=PALETTE["card"],
+                             corner_radius=10)
+        fcard.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(fcard, text="Friends online", font=FONT_BOLD
+                     ).pack(anchor="w", padx=14, pady=(12, 4))
+        user = users.current_user()
         if not (user and user.get("token")):
             ctk.CTkLabel(fcard, text="Sign in on Profile to see "
                                      "who's online",
                          font=FONT_SMALL, text_color=("gray35", "gray60")
-                         ).pack(anchor="w", padx=12, pady=(0, 12))
+                         ).pack(anchor="w", padx=14)
+            ctk.CTkButton(
+                fcard, text="Go to Profile", height=26, width=110,
+                font=FONT_SMALL, fg_color=PALETTE["muted"],
+                hover_color=PALETTE["muted_hover"],
+                command=lambda: self._show_page("profile")
+                ).pack(anchor="w", padx=14, pady=(4, 12))
         elif not online:
             ctk.CTkLabel(fcard, text="No friends online right now",
                          font=FONT_SMALL, text_color=("gray35", "gray60")
-                         ).pack(anchor="w", padx=12, pady=(0, 12))
+                         ).pack(anchor="w", padx=14, pady=(0, 12))
         else:
             for name, pr in sorted(online.items(),
                                    key=lambda kv: kv[0].lower()):
                 r = ctk.CTkFrame(fcard, fg_color="transparent")
-                r.pack(fill="x", padx=12, pady=2)
+                r.pack(fill="x", padx=14, pady=3)
                 st = pr.get("state")
-                ctk.CTkLabel(
-                    r, text="●", font=FONT_SMALL,
-                    text_color=("#25a34a", "#25a34a") if st == "game"
-                    else ("#4a9eff", "#4a9eff")).pack(side="left",
-                                                     padx=(0, 6))
-                ctk.CTkLabel(r, text=name, font=FONT).pack(side="left")
+                dot = "#25a34a" if st == "game" else "#4a9eff"
+                ctk.CTkLabel(r, text="●", font=FONT_SMALL,
+                             text_color=(dot, dot)
+                             ).pack(side="left", padx=(0, 8))
+                info = ctk.CTkFrame(r, fg_color="transparent")
+                info.pack(side="left", fill="x", expand=True)
+                ctk.CTkLabel(info, text=name, font=FONT_BOLD,
+                             anchor="w").pack(fill="x")
                 txt = (f"Playing {pr.get('instance') or 'Minecraft'}"
-                       + (f" on {pr['server']}" if pr.get("server") else "")
+                       + (f"  ·  {pr['server']}" if pr.get("server") else "")
                        if st == "game" else "In launcher")
-                ctk.CTkLabel(r, text=txt, font=FONT_SMALL,
+                ctk.CTkLabel(info, text=txt, font=FONT_SMALL, anchor="w",
                              text_color=("gray35", "gray60")
-                             ).pack(side="left", padx=8)
+                             ).pack(fill="x")
                 if st == "game" and pr.get("server"):
                     ctk.CTkButton(
-                        r, text="Join", width=56, height=24,
+                        r, text="Join", width=56, height=26,
                         font=FONT_SMALL,
                         fg_color=("#1a7f37", "#1a7f37"),
                         hover_color=("#25a34a", "#25a34a"),
                         command=lambda n=name, p=pr:
                             self._join_friend(n, p)
-                        ).pack(side="right", padx=(0, 6))
+                        ).pack(side="right", padx=(6, 0))
                 ctk.CTkButton(
-                    r, text="Chat", width=56, height=24, font=FONT_SMALL,
+                    r, text="Chat", width=56, height=26, font=FONT_SMALL,
                     fg_color=PALETTE["muted"],
                     hover_color=PALETTE["muted_hover"],
                     command=lambda n=name, t=user["token"]:
@@ -732,18 +841,23 @@ class LauncherApp(ctk.CTk):
                     ).pack(side="right")
             ctk.CTkLabel(fcard, text="", font=FONT_SMALL).pack(pady=3)
 
-        # ---- announcements ----
-        acard = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
-        acard.pack(fill="x", pady=4, padx=4)
+        # ---- announcements (right column) ----
+        acard = ctk.CTkFrame(right, fg_color=PALETTE["card"],
+                             corner_radius=10)
+        acard.pack(fill="x", pady=(0, 10))
         self._dash_ann_card = acard
         ctk.CTkLabel(acard, text="Announcements", font=FONT_BOLD
-                     ).pack(anchor="w", padx=12, pady=(10, 2))
+                     ).pack(anchor="w", padx=14, pady=(12, 4))
         self._dash_ann_status = ctk.CTkLabel(
             acard, text="Loading...", font=FONT_SMALL,
             text_color=("gray35", "gray60"))
-        self._dash_ann_status.pack(anchor="w", padx=12, pady=(0, 10))
+        self._dash_ann_status.pack(anchor="w", padx=14, pady=(0, 10))
         threading.Thread(target=self._load_announcements,
                          daemon=True).start()
+
+        self._dash_pres_sig = frozenset(
+            (n, p.get("state"), p.get("server"), p.get("instance"))
+            for n, p in online.items())
 
     def _load_announcements(self):
         items = core.fetch_announcements()
@@ -760,22 +874,22 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(card, text="Nothing new",
                          font=FONT_SMALL,
                          text_color=("gray35", "gray60")
-                         ).pack(anchor="w", padx=12, pady=(0, 10))
+                         ).pack(anchor="w", padx=14, pady=(0, 12))
             return
         for it in items[:5]:
             row = ctk.CTkFrame(card, fg_color="transparent")
-            row.pack(fill="x", padx=12, pady=(0, 8))
+            row.pack(fill="x", padx=14, pady=(0, 8))
             head = ctk.CTkFrame(row, fg_color="transparent")
             head.pack(fill="x")
             ctk.CTkLabel(head, text=it["title"] or "Update",
-                         font=FONT_BOLD).pack(side="left")
+                         font=FONT_BOLD, anchor="w").pack(side="left")
             if it.get("date"):
                 ctk.CTkLabel(head, text=it["date"], font=FONT_SMALL,
                              text_color=("gray35", "gray60")
                              ).pack(side="right")
             if it.get("body"):
                 ctk.CTkLabel(row, text=it["body"][:180], font=FONT_SMALL,
-                             anchor="w", justify="left", wraplength=560,
+                             anchor="w", justify="left", wraplength=300,
                              text_color=("gray35", "gray60")
                              ).pack(fill="x")
 
@@ -4962,6 +5076,14 @@ class LauncherApp(ctk.CTk):
     def _msg_state(self, incoming, unread, new_read, presence=None):
         if presence is not None:
             self._friends_presence = presence
+            # re-render the dashboard only when the online set changed
+            if getattr(self, "_active_page", "") == "dashboard":
+                sig = frozenset(
+                    (n, p.get("state"), p.get("server"), p.get("instance"))
+                    for n, p in presence.items()
+                    if p.get("state") in ("game", "launcher"))
+                if sig != getattr(self, "_dash_pres_sig", None):
+                    self._render_dashboard()
         added = {f for f in unread if f not in self._unread
                  and f not in self._chat_open}
         had_req = self._new_requests
