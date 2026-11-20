@@ -3,9 +3,13 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
+
+# where the launcher itself is installed - resolved from this file, so
+# it is always correct wherever the folder lives or moves to
+INSTALL_DIR = Path(__file__).resolve().parent.parent
 
 
 def default_game_dir() -> str:

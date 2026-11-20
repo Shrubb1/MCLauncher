@@ -97,6 +97,9 @@ class LauncherApp(ctk.CTk):
         self.minsize(900, 580)
 
         self.settings = config.load_settings()
+        if self.settings.get("install_dir") != str(config.INSTALL_DIR):
+            self.settings["install_dir"] = str(config.INSTALL_DIR)
+            config.save_settings(self.settings)
         self._geom_after = None
         preview = bool(os.environ.get("MCL_THEME"))
         if not preview:
@@ -2794,6 +2797,18 @@ class LauncherApp(ctk.CTk):
         self.update_status = ctk.CTkLabel(
             frame, text="", font=FONT_SMALL, text_color=("gray60", "gray60"))
         self.update_status.grid(row=23, column=1, sticky="w", padx=8)
+
+        ctk.CTkLabel(frame, text="Install location", font=FONT).grid(
+            row=24, column=0, sticky="w", padx=(12, 12), pady=8)
+        loc_row = ctk.CTkFrame(frame, fg_color="transparent")
+        loc_row.grid(row=24, column=1, sticky="w", padx=8, pady=8)
+        ctk.CTkLabel(loc_row, text=str(config.INSTALL_DIR),
+                     font=FONT_SMALL,
+                     text_color=("gray60", "gray60")).pack(side="left")
+        ctk.CTkButton(loc_row, text="Open folder", width=100,
+                      font=FONT_SMALL,
+                      command=lambda: os.startfile(config.INSTALL_DIR)
+                      ).pack(side="left", padx=10)
 
         def detect_java():
             self._java_major = core.java_major_version(
