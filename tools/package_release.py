@@ -8,6 +8,7 @@ a GitHub Release (or send directly).
 """
 
 import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -64,6 +65,17 @@ def main():
     print(f"{ZIP}  ({ZIP.stat().st_size // 1024} KB)")
     print("Contents:", sum(1 for _ in STAGE.rglob('*') if _.is_file()), "files")
     print(f"Version: {config.APP_VERSION}  ->  server/update.zip staged")
+
+    if "--push" in sys.argv:
+        subprocess.run(["git", "add", "-A"], cwd=ROOT, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Devin",
+             "-c", "user.email=158243242+devin-ai-integration[bot]"
+             "@users.noreply.github.com",
+             "commit", "-q", "-m", f"release v{config.APP_VERSION}"],
+            cwd=ROOT)
+        subprocess.run(["git", "push", "-q"], cwd=ROOT, check=True)
+        print("pushed to GitHub")
 
 
 if __name__ == "__main__":
