@@ -137,6 +137,9 @@ class LauncherApp(ctk.CTk):
         self._build_ui()
         self._show_page("home")
         self._refresh_account_menu()
+        self._update_dismissed = None
+        self._pending_update = None
+        self.after(2000, self._update_check)
         threading.Thread(target=self._load_versions, daemon=True).start()
 
     # ------------------------------------------------------------- helpers
@@ -186,14 +189,16 @@ class LauncherApp(ctk.CTk):
             btn.pack(fill="x", padx=12, pady=2)
             self.nav_buttons[name] = btn
 
-        self.version_label = ctk.CTkLabel(sidebar, text="", font=FONT_SMALL,
-                                          text_color=PALETTE["muted_hover"])
+        self.version_label = ctk.CTkLabel(
+            sidebar, text=f"v{config.APP_VERSION}", font=FONT_SMALL,
+            text_color=PALETTE["muted_hover"])
         self.version_label.pack(side="bottom", pady=12)
 
-        content = ctk.CTkFrame(self, fg_color="transparent")
+        self._content = ctk.CTkFrame(self, fg_color="transparent")
+        content = self._content
         content.grid(row=0, column=1, sticky="nsew")
         content.grid_columnconfigure(0, weight=1)
-        content.grid_rowconfigure(0, weight=1)
+        content.grid_rowconfigure(1, weight=1)
 
         self.pages = {
             "home": self._build_home(content),
@@ -206,7 +211,7 @@ class LauncherApp(ctk.CTk):
             "mod": self._build_mod(content),
         }
         for frame in self.pages.values():
-            frame.grid(row=0, column=0, sticky="nsew")
+            frame.grid(row=1, column=0, sticky="nsew")
             frame.grid_remove()
 
     def _show_page(self, name):
@@ -3631,6 +3636,73 @@ class LauncherApp(ctk.CTk):
         self.update_status.configure(text=msg)
         if updated:
             self.update_restart_btn.pack(side="left", padx=10)
+
+    # --------------------------------------------- update notifications
+
+    def _update_check(self):
+        """Ask GitHub for the latest version; banner if newer. Rechecks
+        every 30 min while running."""
+        self.after(1800000, self._update_check)
+
+        def work():
+            remote = config.remote_version()
+            if config.version_newer(remote) \
+                    and remote != self._update_dismissed:
+                self.ui_call(self._show_update_banner, remote)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_update_banner(self, remote):
+        self._pending_update = remote
+        if getattr(self, "update_banner", None) is None:
+            bar = ctk.CTkFrame(self._content, border_width=1,
+                               border_color=PALETTE["accent"],
+                               corner_radius=8)
+            self.upd_lbl = ctk.CTkLabel(bar, font=FONT,
+                                        text_color=PALETTE["accent"])
+            self.upd_lbl.pack(side="left", padx=12, pady=6)
+            ctk.CTkButton(bar, text="Later", width=60, font=FONT_SMALL,
+                          fg_color=PALETTE["muted"],
+                          hover_color=PALETTE["muted_hover"],
+                          command=self._dismiss_update
+                          ).pack(side="right", padx=(4, 6), pady=4)
+            self.upd_btn = ctk.CTkButton(
+                bar, text="Update & restart", width=130, font=FONT_SMALL,
+                command=self._apply_update)
+            self.upd_btn.pack(side="right", padx=4, pady=4)
+            self.update_banner = bar
+        self.upd_lbl.configure(text=f"Update available - v{remote}")
+        self.update_banner.grid(row=0, column=0, sticky="ew",
+                                padx=8, pady=(8, 0))
+
+    def _dismiss_update(self):
+        self._update_dismissed = self._pending_update
+        self.update_banner.grid_remove()
+
+    def _apply_update(self):
+        self.upd_btn.configure(state="disabled", text="Updating...")
+
+        def work():
+            root = Path(__file__).resolve().parent.parent
+            flags = {}
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                flags["creationflags"] = subprocess.CREATE_NO_WINDOW
+            try:
+                p = subprocess.run(
+                    [sys.executable, str(root / "tools" / "update.py")],
+                    capture_output=True, text=True, timeout=180, **flags)
+                ok = "Updated to" in (p.stdout or "")
+            except Exception:
+                ok = False
+            self.ui_call(self._update_applied, ok)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_applied(self, ok):
+        if ok:
+            self._restart_launcher()
+            return
+        self.upd_btn.configure(state="normal", text="Update & restart")
+        self.upd_lbl.configure(
+            text="Update failed - try Settings > Check for updates")
 
     def _on_configure(self, event):
         if event.widget is not self:

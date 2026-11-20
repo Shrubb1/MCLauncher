@@ -3,13 +3,37 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.7"
+APP_VERSION = "1.2.8"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
 
 # where the launcher itself is installed - resolved from this file, so
 # it is always correct wherever the folder lives or moves to
 INSTALL_DIR = Path(__file__).resolve().parent.parent
+
+
+def remote_version() -> str:
+    """Latest APP_VERSION published on GitHub, or '' if unreachable."""
+    import re
+    import urllib.request
+    try:
+        raw = urllib.request.urlopen(
+            f"https://raw.githubusercontent.com/{UPDATE_REPO}"
+            f"/{UPDATE_BRANCH}/launcher/config.py", timeout=8).read().decode()
+        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', raw)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
+def version_newer(remote: str) -> bool:
+    """True if remote (e.g. '1.2.8') is newer than APP_VERSION."""
+    def t(v):
+        try:
+            return tuple(int(x) for x in str(v).split("."))
+        except Exception:
+            return (0,)
+    return bool(remote) and t(remote) > t(APP_VERSION)
 
 
 def default_game_dir() -> str:
