@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.9"
+APP_VERSION = "1.2.10"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
 
@@ -15,11 +15,13 @@ INSTALL_DIR = Path(__file__).resolve().parent.parent
 def remote_version() -> str:
     """Latest APP_VERSION published on GitHub, or '' if unreachable."""
     import re
+    import time
     import urllib.request
     try:
         raw = urllib.request.urlopen(
             f"https://raw.githubusercontent.com/{UPDATE_REPO}"
-            f"/{UPDATE_BRANCH}/launcher/config.py", timeout=8).read().decode()
+            f"/{UPDATE_BRANCH}/launcher/config.py?v={int(time.time())}",
+            timeout=8).read().decode()
         m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', raw)
         return m.group(1) if m else ""
     except Exception:

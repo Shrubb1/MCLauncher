@@ -14,6 +14,7 @@ import json
 import re
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -45,7 +46,7 @@ def _github():
     try:
         raw = _fetch(
             f"https://raw.githubusercontent.com/{repo}/{branch}"
-            "/launcher/config.py", 10).decode()
+            f"/launcher/config.py?v={int(time.time())}", 10).decode()
         remote = (re.search(r'APP_VERSION\s*=\s*"([^"]+)"', raw) or [""])[1]
         if not remote or _ver(remote) <= _ver(config.APP_VERSION):
             return (remote or config.APP_VERSION), None
