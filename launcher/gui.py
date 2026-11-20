@@ -633,12 +633,14 @@ class LauncherApp(ctk.CTk):
                       command=self._probe_server).grid(row=2, column=2,
                                                        padx=(0, 12),
                                                        pady=(0, 12))
-        self.probe_status = ctk.CTkLabel(
-            card, text="", font=FONT_SMALL,
-            text_color=("gray35", "gray60"), anchor="w")
-        self.probe_status.grid(row=3, column=0, columnspan=3, sticky="w",
-                               padx=12)
-        self.probe_result = None
+        # fixed-height result slot: contents swap in place so the page
+        # below never jumps
+        self.probe_result = ctk.CTkFrame(card, fg_color=PALETTE["muted"],
+                                         corner_radius=6, height=92)
+        self.probe_result.grid(row=3, column=0, columnspan=3, sticky="ew",
+                               padx=12, pady=(0, 12))
+        self.probe_result.grid_propagate(False)
+        self._set_probe_slot("Ping a server to see its status here")
 
         # live-status caches for the history list
         self._server_status = {}    # host -> probe dict | None (offline)
@@ -658,6 +660,15 @@ class LauncherApp(ctk.CTk):
         frame.grid_rowconfigure(3, weight=1)
         return frame
 
+    def _set_probe_slot(self, text, error=False):
+        """Center a status line inside the fixed ping-result slot."""
+        for w in self.probe_result.winfo_children():
+            w.destroy()
+        ctk.CTkLabel(self.probe_result, text=text, font=FONT_SMALL,
+                     text_color=("#c0392b", "#c0392b") if error
+                     else ("gray35", "gray60")
+                     ).place(relx=0.5, rely=0.5, anchor="center")
+
     def _probe_server(self):
         addr = self.probe_entry.get().strip()
         if not addr:
@@ -666,12 +677,9 @@ class LauncherApp(ctk.CTk):
         try:
             port = int(port_s) if sep else None  # None -> SRV lookup first
         except ValueError:
-            self.probe_status.configure(text="Invalid port")
+            self._set_probe_slot("Invalid port", error=True)
             return
-        self.probe_status.configure(text=f"Pinging {addr}...")
-        if self.probe_result:
-            self.probe_result.destroy()
-            self.probe_result = None
+        self._set_probe_slot(f"Pinging {addr}...")
 
         def work():
             try:
@@ -682,8 +690,7 @@ class LauncherApp(ctk.CTk):
                        "gaierror": "address not found",
                        "ConnectionRefusedError": "connection refused"}.get(
                            type(e).__name__, f"failed: {e}")
-                self.ui_call(self.probe_status.configure,
-                             {"text": f"{host}: {msg}"})
+                self.ui_call(self._set_probe_slot, f"{host}: {msg}", True)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -727,20 +734,15 @@ class LauncherApp(ctk.CTk):
         players = r.get("players") or {}
         motd = core.clean_motd(r.get("description")).replace("\n", " ").strip()
         ver_name = str(ver.get("name", "?"))
-        self.probe_status.configure(text="")
         key = host if port == 25565 else f"{host}:{port}"
         self._server_status[key] = r
         fav = self._favicon_image(r)
         if fav:
             self._server_favicons[key] = fav
 
-        if self.probe_result:
-            self.probe_result.destroy()
-        res = ctk.CTkFrame(self._ping_card, fg_color=PALETTE["muted"],
-                           corner_radius=6)
-        res.grid(row=4, column=0, columnspan=3, sticky="ew",
-                 padx=12, pady=(0, 12))
-        self.probe_result = res
+        res = self.probe_result
+        for w in res.winfo_children():
+            w.destroy()
 
         self._server_icon_box(res, host, fav).pack(side="left",
                                                  padx=(8, 12), pady=8)
@@ -759,8 +761,8 @@ class LauncherApp(ctk.CTk):
             self._pill(line1, "cached")
 
         if motd:
-            ctk.CTkLabel(info, text=motd[:110], font=FONT_SMALL, anchor="w",
-                         justify="left", wraplength=430,
+            ctk.CTkLabel(info, text=motd[:80], font=FONT_SMALL, anchor="w",
+                         justify="left",
                          text_color=("gray35", "gray60")
                          ).pack(fill="x", pady=(2, 0))
 
