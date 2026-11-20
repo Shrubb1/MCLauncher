@@ -16,3 +16,6 @@ server/*.db-*
 # generated update payload (rebuilt by tools/package_release.py)
 server/update.zip
 server/version.txt
+
+# bash '2>nul' creates this stray file on Windows
+nul

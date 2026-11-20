@@ -89,15 +89,18 @@ def admin_users(token):
     return _post("/admin/users", {"token": token})
 
 
-def admin_set_license(token, user, licensed):
+def admin_set_license(token, user, licensed, password=""):
     return _post("/admin/license",
-                 {"token": token, "user": user, "licensed": licensed})
+                 {"token": token, "user": user, "licensed": licensed,
+                  "password": password})
 
 
-def admin_genkeys(token, count):
-    return _post("/admin/genkeys", {"token": token, "count": count})
+def admin_genkeys(token, count, password=""):
+    return _post("/admin/genkeys",
+                 {"token": token, "count": count, "password": password})
 
 
-def admin_config(token, checkout_url):
+def admin_config(token, checkout_url, password=""):
     return _post("/admin/config",
-                 {"token": token, "checkout_url": checkout_url})
+                 {"token": token, "checkout_url": checkout_url,
+                  "password": password})

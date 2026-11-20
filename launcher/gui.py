@@ -12,7 +12,7 @@ import tkinter as tk
 import uuid
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 import customtkinter as ctk
 
@@ -2069,6 +2069,19 @@ class LauncherApp(ctk.CTk):
 
         if user["admin"]:
             acard = self._form_card("Admin - users")
+            grant_row = ctk.CTkFrame(acard, fg_color="transparent")
+            grant_row.pack(fill="x", padx=12, pady=(0, 8))
+            self.admin_grant_entry = ctk.CTkEntry(
+                grant_row, placeholder_text="username", width=160,
+                font=FONT)
+            self.admin_grant_entry.pack(side="left")
+            ctk.CTkButton(
+                grant_row, text="Grant license", width=100,
+                font=FONT_SMALL, fg_color=("#1a7f37", "#1a7f37"),
+                hover_color=("#25a34a", "#25a34a"),
+                command=lambda: self._admin_set_license(
+                    self.admin_grant_entry.get(), True)
+            ).pack(side="left", padx=8)
             if user.get("token"):
                 holder = ctk.CTkLabel(acard, text="Loading...",
                                       font=FONT_SMALL,
@@ -2092,6 +2105,7 @@ class LauncherApp(ctk.CTk):
                          "key": uname}
                         for uname, rec in sorted(users.list_users().items())]
                 self._fill_admin_rows(acard, None, rows)
+        self._refresh_session("profile")
 
     def _fill_admin_rows(self, acard, holder, rows):
         if holder is not None:
@@ -2126,16 +2140,39 @@ class LauncherApp(ctk.CTk):
         users.logout()
         self._render_profile()
 
+    def _admin_pw(self, action):
+        """Re-confirm the admin's password before a privileged write."""
+        return simpledialog.askstring(
+            "Confirm admin", f"Your password is required to {action}:",
+            show="*", parent=self)
+
     def _admin_set_license(self, uname, licensed):
+        uname = (uname or "").strip()
+        if not uname:
+            return
         user = users.current_user()
-        if user and user.get("token"):
+        if not user:
+            return
+        pw = self._admin_pw(
+            f"{'grant' if licensed else 'revoke'} a license for {uname}")
+        if pw is None:
+            return
+        if user.get("token"):
             from . import chat
             try:
-                chat.admin_set_license(user["token"], uname, licensed)
+                r = chat.admin_set_license(
+                    user["token"], uname, licensed, pw)
             except Exception:
-                pass
+                r = {"error": "Chat server unreachable"}
+            err = r.get("error")
         else:
-            users.set_licensed(uname, licensed)
+            err = None if users.authenticate(user["name"], pw) \
+                else "password required"
+            if not err:
+                users.set_licensed(uname, licensed)
+        if err:
+            messagebox.showerror("License", err, parent=self)
+            return
         self._render_profile()
 
     # ------------------------------------------------------------- Friends
@@ -2482,6 +2519,26 @@ class LauncherApp(ctk.CTk):
         if user.get("admin"):
             self._render_mod_seller()
         self._load_checkout_url()
+        self._refresh_session("mod")
+
+    def _refresh_session(self, page):
+        """Pull fresh account flags off-thread; re-render if the
+        server changed license/admin/binding since login."""
+        user = users.current_user()
+        if not user or not user.get("token"):
+            return
+        before = (user.get("licensed"), user.get("admin"),
+                  user.get("bound_mc"), user.get("bound_at"))
+
+        def work():
+            users.refresh()
+            u2 = users.current_user()
+            after = (u2.get("licensed"), u2.get("admin"),
+                     u2.get("bound_mc"), u2.get("bound_at")) if u2 else before
+            if after != before and getattr(self, "_active_page", "") == page:
+                self.ui_call(self._render_mod if page == "mod"
+                             else self._render_profile)
+        threading.Thread(target=work, daemon=True).start()
 
     def _load_checkout_url(self):
         """Fetch the store link off-thread so page render never stalls."""
@@ -2628,17 +2685,23 @@ class LauncherApp(ctk.CTk):
         self.mod_keys_box.configure(state="disabled")
 
     def _mod_store_save(self):
-        users.set_checkout_url(self.mod_store_entry.get())
+        pw = self._admin_pw("save the store link")
+        if pw is None:
+            return
+        users.set_checkout_url(self.mod_store_entry.get(), pw)
         self.mod_store_btn.configure(text="Saved ✓")
         self.after(1500, lambda: self.mod_store_btn.configure(
             text="Save link"))
 
     def _mod_genkeys(self):
+        pw = self._admin_pw("generate purchase keys")
+        if pw is None:
+            return
         try:
             count = int(self.mod_gen_entry.get() or 1)
         except ValueError:
             count = 1
-        r = users.gen_keys(count)
+        r = users.gen_keys(count, pw)
         self.mod_keys_box.configure(state="normal")
         self.mod_keys_box.delete("1.0", "end")
         if r.get("error"):

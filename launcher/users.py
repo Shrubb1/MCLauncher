@@ -341,7 +341,7 @@ def cached_checkout_url() -> str:
     return _CHECKOUT_CACHE["url"] or ""
 
 
-def set_checkout_url(url: str) -> None:
+def set_checkout_url(url: str, password: str = "") -> None:
     """Save the store link locally and, for online admins, on the relay."""
     from . import config
     settings = config.load_settings()
@@ -351,7 +351,7 @@ def set_checkout_url(url: str) -> None:
     u = current_user()
     if u and u.get("admin") and u.get("online"):
         try:
-            _server().admin_config(u["token"], url.strip())
+            _server().admin_config(u["token"], url.strip(), password)
         except Exception:
             pass
 
@@ -391,7 +391,7 @@ def redeem_key(key: str) -> dict:
     return {"ok": True}
 
 
-def gen_keys(count: int) -> dict:
+def gen_keys(count: int, password: str = "") -> dict:
     """Admin: mint purchase keys -> {keys: [...]} or {error}."""
     u = current_user()
     if not u or not u.get("admin"):
@@ -399,7 +399,7 @@ def gen_keys(count: int) -> dict:
     count = max(1, min(50, int(count or 1)))
     if u.get("online"):
         try:
-            r = _server().admin_genkeys(u["token"], count)
+            r = _server().admin_genkeys(u["token"], count, password)
         except Exception:
             return {"error": "Chat server unreachable"}
         if r.get("error"):
@@ -473,3 +473,25 @@ def current_user() -> dict | None:
 def is_licensed() -> bool:
     u = current_user()
     return bool(u and u.get("licensed"))
+
+
+def refresh() -> None:
+    """Online accounts: pull /me so server-side flag changes (license
+    grants, admin flips, binds) reach this session without re-login."""
+    u = current_user()
+    if not u or not u.get("token"):
+        return
+    srv = _server()
+    if srv is None:
+        return
+    try:
+        r = srv.me(u["token"])
+    except Exception:
+        return
+    if r.get("error"):
+        return
+    u.update({"name": r["name"], "licensed": bool(r.get("licensed")),
+              "admin": bool(r.get("admin")), "code": r.get("code", ""),
+              "bound_mc": r.get("bound_mc", ""),
+              "bound_at": int(r.get("bound_at") or 0)})
+    login(u)

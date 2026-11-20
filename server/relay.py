@@ -29,6 +29,7 @@ from pathlib import Path
 DB_PATH = Path(os.environ.get(
     "RELAY_DB", Path(__file__).resolve().parent / "relay.db"))
 _ITER = 200_000
+_RATE = {}  # name -> [send timestamps], in-memory flood throttle
 
 
 def _db():
@@ -110,19 +111,23 @@ def _public_user(rec):
 
 def _pair(db, a, b):
     return db.execute(
-        "SELECT * FROM friends WHERE user=? AND friend=?", (a, b)).fetchone()
+        "SELECT * FROM friends WHERE user=? COLLATE NOCASE "
+        "AND friend=? COLLATE NOCASE", (a, b)).fetchone()
 
 
 def _friend_state(db, me, other):
     """'friends' | 'outgoing' | 'incoming' | None for me -> other."""
     fwd = _pair(db, me, other)
-    if fwd and fwd["status"] == "accepted":
+    back = _pair(db, other, me)
+    if (fwd and fwd["status"] == "accepted") or \
+            (back and back["status"] == "accepted"):
         return "friends"
+    # a request aimed at me takes precedence so mutual requests can be
+    # accepted instead of deadlocking as 'outgoing' on both sides
+    if back:
+        return "incoming"
     if fwd:
         return "outgoing"
-    back = _pair(db, other, me)
-    if back:
-        return "friends" if back["status"] == "accepted" else "incoming"
     return None
 
 
@@ -282,7 +287,8 @@ def handle(db, method, path, body):
 
     if path == "/friends":
         rows = db.execute(
-            "SELECT friend, status FROM friends WHERE user=?", (me,)).fetchall()
+            "SELECT friend, status FROM friends WHERE user=? COLLATE NOCASE",
+            (me,)).fetchall()
         out, inc, acc = [], [], []
         for r in rows:
             st = _friend_state(db, me, r["friend"])
@@ -292,8 +298,8 @@ def handle(db, method, path, body):
                 out.append(r["friend"])
         # requests aimed at me that I haven't answered
         rows = db.execute(
-            "SELECT user FROM friends WHERE friend=? AND status='pending'",
-            (me,)).fetchall()
+            "SELECT user FROM friends WHERE friend=? COLLATE NOCASE "
+            "AND status='pending'", (me,)).fetchall()
         for r in rows:
             if _friend_state(db, me, r["user"]) == "incoming":
                 inc.append(r["user"])
@@ -303,8 +309,10 @@ def handle(db, method, path, body):
 
     if path == "/friends/add":
         other = (body.get("friend") or "").strip()
-        if not _user(db, other):
+        rec = _user(db, other)
+        if not rec:
             return {"error": "no such user"}
+        other = rec["name"]  # canonical case
         if other.lower() == me.lower():
             return {"error": "that's you"}
         st = _friend_state(db, me, other)
@@ -318,46 +326,59 @@ def handle(db, method, path, body):
             (me, other, "accepted" if accept else "pending"))
         if accept:
             db.execute(
-                "UPDATE friends SET status='accepted' WHERE user=? AND friend=?",
+                "UPDATE friends SET status='accepted' "
+                "WHERE user=? COLLATE NOCASE AND friend=? COLLATE NOCASE",
                 (other, me))
         db.commit()
-        return {"ok": True, "friends": accept}
+        return {"ok": True, "friends": bool(accept)}
 
     if path == "/friends/remove":
         other = (body.get("friend") or "").strip()
-        db.execute("DELETE FROM friends WHERE (user=? AND friend=?) "
-                   "OR (user=? AND friend=?)", (me, other, other, me))
+        db.execute("DELETE FROM friends WHERE "
+                   "(user=? COLLATE NOCASE AND friend=? COLLATE NOCASE) "
+                   "OR (user=? COLLATE NOCASE AND friend=? COLLATE NOCASE)",
+                   (me, other, other, me))
         db.commit()
         return {"ok": True}
 
     if path == "/messages/send":
         to = (body.get("to") or "").strip()
         text = (body.get("text") or "").strip()
-        if not text or len(text) > 2000:
+        if not text or len(text) > 200:
             return {"error": "empty or too long"}
-        if _friend_state(db, me, to) != "friends":
+        now = int(time.time())
+        sent = [t for t in _RATE.get(me, ()) if now - t < 10]
+        if len(sent) >= 10:
+            return {"error": "slow down"}
+        _RATE[me] = sent + [now]
+        rec = _user(db, to)
+        if not rec or _friend_state(db, me, to) != "friends":
             return {"error": "not friends"}
         db.execute("INSERT INTO messages(sender, recipient, text, ts) "
-                   "VALUES(?,?,?,?)", (me, to, text, int(time.time())))
+                   "VALUES(?,?,?,?)", (me, rec["name"], text,
+                                      int(time.time())))
         db.commit()
         return {"ok": True}
 
     if path == "/messages":
         other = (body.get("with") or "").strip()
         since = int(body.get("since") or 0)
-        if _friend_state(db, me, other) != "friends":
+        rec = _user(db, other)
+        if not rec or _friend_state(db, me, other) != "friends":
             return {"error": "not friends"}
+        other = rec["name"]
         rows = db.execute(
             "SELECT id, sender, text, ts FROM messages WHERE id>? AND "
-            "((sender=? AND recipient=?) OR (sender=? AND recipient=?)) "
+            "((sender=? COLLATE NOCASE AND recipient=? COLLATE NOCASE) OR "
+            "(sender=? COLLATE NOCASE AND recipient=? COLLATE NOCASE)) "
             "ORDER BY id LIMIT 200",
             (since, me, other, other, me)).fetchall()
         return {"messages": [dict(r) for r in rows]}
 
     if path == "/admin/license":
-        rec = _user(db, me)
-        if not rec or not rec["admin"]:
-            return {"error": "not admin"}, 403
+        rec, err = _admin_auth(db, me, body.get("password") or "")
+        if err:
+            return err
         target = (body.get("user") or "").strip()
         flag = 1 if body.get("licensed") else 0
         cur = db.execute("UPDATE users SET licensed=? WHERE name=?",
@@ -378,9 +399,9 @@ def handle(db, method, path, body):
                            "admin": bool(r["admin"])} for r in rows]}
 
     if path == "/admin/genkeys":
-        rec = _user(db, me)
-        if not rec or not rec["admin"]:
-            return {"error": "not admin"}, 403
+        rec, err = _admin_auth(db, me, body.get("password") or "")
+        if err:
+            return err
         count = max(1, min(50, int(body.get("count") or 1)))
         keys = []
         for _ in range(count):
@@ -393,9 +414,9 @@ def handle(db, method, path, body):
         return {"keys": keys}
 
     if path == "/admin/config":
-        rec = _user(db, me)
-        if not rec or not rec["admin"]:
-            return {"error": "not admin"}, 403
+        rec, err = _admin_auth(db, me, body.get("password") or "")
+        if err:
+            return err
         url = str(body.get("checkout_url") or "").strip()
         db.execute("INSERT INTO cfg VALUES('checkout_url',?) "
                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -404,6 +425,18 @@ def handle(db, method, path, body):
         return {"ok": True}
 
     return {"error": "unknown endpoint"}, 404
+
+
+def _admin_auth(db, me, pw):
+    """Admin endpoints that write: require a valid password on top of
+    the session token, so a stolen token alone can't grant licenses,
+    mint keys, or change the store link."""
+    rec = _user(db, me)
+    if not rec or not rec["admin"]:
+        return None, ({"error": "not admin"}, 403)
+    if rec["hash"] != _hash(pw, bytes.fromhex(rec["salt"])):
+        return None, ({"error": "password required"}, 403)
+    return rec, None
 
 
 def _login(db, name, pw):
@@ -447,7 +480,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json(res)
         except Exception as e:
-            self._json({"error": str(e)}, 500)
+            print(f"error {method} {self.path}: {e}")
+            self._json({"error": "bad request"}, 400)
         finally:
             db.close()
 
@@ -472,6 +506,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_POST(self):
+        ln = int(self.headers.get("Content-Length") or 0)
+        if ln > 65536:
+            return self._json({"error": "payload too large"}, 413)
         self._handle("POST")
 
     def log_message(self, *a):
