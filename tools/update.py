@@ -116,10 +116,20 @@ def main():
     if sys.argv[1:2] == ["--expect"] and len(sys.argv) > 2:
         expect = sys.argv[2]
     if expect:
-        # Caller knows a newer version exists; retry while the API edge
-        # catches up, then download straight from GitHub.
+        if _ver(config.APP_VERSION) >= _ver(expect):
+            print("Already up to date")
+            return 0
+        # Caller knows a newer version exists. Try the relay first - its
+        # bundled zip is live the moment the release deploys, while the
+        # GitHub API edge can lag minutes behind the push.
         remote, data = "", None
         for _ in range(6):
+            got = _relay()
+            if got and got[1] is not None and _ver(got[0]) >= _ver(expect):
+                remote, data = got
+                break
+            if got:
+                remote = got[0]
             got = _github(expect)
             if got and got[1] is not None:
                 remote, data = got
