@@ -70,7 +70,7 @@ def _scroll_frame(parent, **kw):
 def _title_box(parent, text):
     """Page title in an accent-bordered chip."""
     box = ctk.CTkFrame(parent, fg_color="transparent", border_width=1,
-                       border_color=PALETTE["accent"], corner_radius=8)
+                       border_color=PALETTE["accent"], corner_radius=4)
     ctk.CTkLabel(box, text=text, font=FONT_TITLE,
                  text_color=PALETTE["accent"]).pack(padx=10, pady=2)
     return box
@@ -3686,7 +3686,7 @@ class LauncherApp(ctk.CTk):
         if getattr(self, "update_banner", None) is None:
             bar = ctk.CTkFrame(self._content, border_width=1,
                                border_color=PALETTE["accent"],
-                               corner_radius=8)
+                               corner_radius=4)
             self.upd_lbl = ctk.CTkLabel(bar, font=FONT,
                                         text_color=PALETTE["accent"])
             self.upd_lbl.pack(side="left", padx=12, pady=6)
