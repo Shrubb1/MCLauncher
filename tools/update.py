@@ -37,8 +37,12 @@ def _fetch(url, timeout):
     return urllib.request.urlopen(req, timeout=timeout).read()
 
 
-def _github():
-    """Return (version, zip_bytes) from GitHub, or None."""
+def _github(min_remote=""):
+    """Return (version, zip_bytes) from GitHub, or None.
+
+    min_remote: if given, a version the caller already knows is published
+    (e.g. relay-pushed). The API edge can lag a few minutes behind a push;
+    callers retry instead of trusting a stale 'up to date'."""
     repo = getattr(config, "UPDATE_REPO", "")
     branch = getattr(config, "UPDATE_BRANCH", "main")
     if not repo:
@@ -51,7 +55,8 @@ def _github():
                      "User-Agent": "MCLauncher"})
         raw = urllib.request.urlopen(req, timeout=10).read().decode()
         remote = (re.search(r'APP_VERSION\s*=\s*"([^"]+)"', raw) or [""])[1]
-        if not remote or _ver(remote) <= _ver(config.APP_VERSION):
+        if not remote or _ver(remote) <= _ver(config.APP_VERSION) \
+                or _ver(remote) < _ver(min_remote):
             return (remote or config.APP_VERSION), None
         return remote, _fetch(
             f"https://codeload.github.com/{repo}/zip/refs/heads/{branch}",
@@ -98,6 +103,29 @@ def _extract(data):
 
 def main():
     print(f"Installed: {config.APP_VERSION}")
+    expect = ""
+    if sys.argv[1:2] == ["--expect"] and len(sys.argv) > 2:
+        expect = sys.argv[2]
+    if expect:
+        # Caller knows a newer version exists; retry while the API edge
+        # catches up, then download straight from GitHub.
+        remote, data = "", None
+        for _ in range(6):
+            got = _github(expect)
+            if got and got[1] is not None:
+                remote, data = got
+                break
+            remote = got[0] if got else remote
+            time.sleep(3)
+        if data is None:
+            print("Update is still propagating on GitHub - "
+                  "wait a minute and retry")
+            return 1
+        print(f"Latest (GitHub): {remote}")
+        count = _extract(data)
+        print(f"Updated to {remote} ({count} files) - "
+              "restart the launcher")
+        return 0
     for name, source in (("GitHub", _github), ("relay", _relay)):
         got = source()
         if not got:

@@ -3726,23 +3726,27 @@ class LauncherApp(ctk.CTk):
             flags = {}
             if hasattr(subprocess, "CREATE_NO_WINDOW"):
                 flags["creationflags"] = subprocess.CREATE_NO_WINDOW
+            cmd = [sys.executable, str(root / "tools" / "update.py")]
+            if getattr(self, "_pending_update", None):
+                cmd += ["--expect", str(self._pending_update)]
             try:
                 p = subprocess.run(
-                    [sys.executable, str(root / "tools" / "update.py")],
-                    capture_output=True, text=True, timeout=180, **flags)
+                    cmd, capture_output=True, text=True, timeout=180,
+                    **flags)
+                lines = (p.stdout or "").strip().splitlines()
                 ok = "Updated to" in (p.stdout or "")
+                msg = lines[-1] if lines else "Update failed"
             except Exception:
-                ok = False
-            self.ui_call(self._update_applied, ok)
+                ok, msg = False, "Update failed"
+            self.ui_call(self._update_applied, ok, msg)
         threading.Thread(target=work, daemon=True).start()
 
-    def _update_applied(self, ok):
+    def _update_applied(self, ok, msg=""):
         if ok:
             self._restart_launcher()
             return
         self.upd_btn.configure(state="normal", text="Update & restart")
-        self.upd_lbl.configure(
-            text="Update failed - try Settings > Check for updates")
+        self.upd_lbl.configure(text=msg or "Update failed")
 
     # ------------------------------------------------- nav badges + inbox
 
