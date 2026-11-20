@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "mclauncher-client",
+  "version": "${version}",
+  "name": "MCLauncher Client",
+  "description": "Built-in server-safe HUD and QoL: FPS, ping, coordinates, armor durability, potion timers, keystrokes/CPS, zoom, fullbright, toggle sprint, borderless window. No packets, movement, or reach changes.",
+  "environment": "client",
+  "license": "MIT",
+  "entrypoints": {
+    "client": ["com.mclauncher.client.ClientMod"]
+  },
+  "mixins": ["mclauncher-client.mixins.json"],
+  "depends": {
+    "minecraft": "1.21.11",
+    "java": ">=21",
+    "fabricloader": ">=0.16.0"
+  },
+  "icon": "assets/mclauncher-client/icon.png"
+}

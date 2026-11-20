@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.gradle/
+build/
+client/build/
+release/
+ok_test.txt
+*.log
+
+# live data - never ship
+server/relay.db
+server/*.db
+server/*.db-*
+
+# generated update payload (rebuilt by tools/package_release.py)
+server/update.zip
+server/version.txt

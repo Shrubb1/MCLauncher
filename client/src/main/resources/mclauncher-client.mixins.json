@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "com.mclauncher.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ClientPlayerEntityMixin",
+    "GameRendererMixin",
+    "InGameHudMixin",
+    "KeyBindingAccessor",
+    "KeyboardMixin",
+    "MinecraftClientMixin",
+    "MouseMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
