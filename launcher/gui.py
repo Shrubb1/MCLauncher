@@ -2840,10 +2840,15 @@ class LauncherApp(ctk.CTk):
             upd_row, text="Check for updates", width=150, font=FONT,
             command=self._check_update)
         self.update_btn.pack(side="left")
-        ctk.CTkLabel(upd_row, text=f"v{config.APP_VERSION} installed",
-                     font=FONT_SMALL,
-                     text_color=("gray35", "gray60")).pack(side="left",
-                                                           padx=10)
+        self.upd_ver_lbl = ctk.CTkLabel(
+            upd_row, text=f"v{config.APP_VERSION} installed",
+            font=FONT_SMALL, text_color=("gray35", "gray60"))
+        self.upd_ver_lbl.pack(side="left", padx=10)
+        self.upd_dot = tk.Canvas(upd_row, width=15, height=15, bd=0,
+                                 highlightthickness=0,
+                                 bg=PALETTE["card"])
+        self.upd_dot.create_oval(1.5, 1.5, 13.5, 13.5, fill="#e05252",
+                               outline=PALETTE["badge_ring"], width=2)
         self.update_restart_btn = ctk.CTkButton(
             upd_row, text="Restart now", width=110, font=FONT_SMALL,
             command=self._restart_launcher)
@@ -3705,6 +3710,9 @@ class LauncherApp(ctk.CTk):
         self.update_banner.grid(row=0, column=0, sticky="ew",
                                 padx=8, pady=(8, 0))
         self._set_nav_badge("settings", True)
+        if getattr(self, "upd_dot", None) is not None \
+                and not self.upd_dot.winfo_ismapped():
+            self.upd_dot.pack(side="left")
 
     def _dismiss_update(self):
         self._update_dismissed = self._pending_update
