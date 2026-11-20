@@ -816,7 +816,7 @@ class LauncherApp(ctk.CTk):
                 for c in w.winfo_children():
                     _clicks(c)
             _clicks(card)
-            self._ping_server_row(host)
+            self._ping_server_row(host, delay=i * 0.6)
 
     def _probe_popular(self, host):
         self.probe_entry.delete(0, "end")
@@ -917,7 +917,7 @@ class LauncherApp(ctk.CTk):
             "loader_id": "vanilla", "mc_version": mc,
             "loader_version": "", "server": h, "server_port": port})
 
-    def _ping_server_row(self, host):
+    def _ping_server_row(self, host, delay=0.0):
         h, sep, p_s = host.partition(":")
         try:
             port = int(p_s) if sep else None
@@ -925,11 +925,16 @@ class LauncherApp(ctk.CTk):
             port = None
 
         def work():
-            try:
-                r = core.probe_server(h, port, timeout=4)
-                self.ui_call(self._apply_row_status, host, r)
-            except Exception:
-                self.ui_call(self._apply_row_status, host, None)
+            if delay:
+                time.sleep(delay)  # stagger concurrent mcsrvstat calls
+            for attempt in range(2):
+                try:
+                    r = core.probe_server(h, port, timeout=4)
+                    self.ui_call(self._apply_row_status, host, r)
+                    return
+                except Exception:
+                    time.sleep(3 + attempt * 3)
+            self.ui_call(self._apply_row_status, host, None)
 
         threading.Thread(target=work, daemon=True).start()
 
