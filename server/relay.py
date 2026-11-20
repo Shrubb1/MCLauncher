@@ -21,6 +21,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +34,8 @@ _RATE = {}  # name -> [send timestamps], in-memory flood throttle
 _GH_URL = ("https://api.github.com/repos/Shrubb1/MCLauncher/"
            "contents/launcher/config.py?ref=master")
 _LATEST = {"ts": 0.0, "ver": ""}  # cached GitHub version lookup
+_ZIP_SEM = threading.BoundedSemaphore(8)  # cap concurrent update.zip sends
+_ZIP_CACHE = {"mtime": 0.0, "data": b""}  # cached zip bytes (mtime-invalidated)
 
 
 def _local_version():
@@ -569,12 +572,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
-        data = zp.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        # Queue beyond 8 concurrent sends - a release-day stampede on a
+        # shared-CPU box would otherwise pile up a thread per connection.
+        # Waiters get a 503 + Retry-After rather than hanging forever.
+        if not _ZIP_SEM.acquire(timeout=30):
+            self.send_response(503)
+            self.send_header("Retry-After", "10")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        try:
+            mt = zp.stat().st_mtime
+            if mt != _ZIP_CACHE["mtime"]:
+                _ZIP_CACHE["data"] = zp.read_bytes()
+                _ZIP_CACHE["mtime"] = mt
+            data = _ZIP_CACHE["data"]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        finally:
+            _ZIP_SEM.release()
 
     def do_POST(self):
         ln = int(self.headers.get("Content-Length") or 0)

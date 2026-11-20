@@ -15,6 +15,7 @@ import re
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -74,7 +75,15 @@ def _relay():
         remote = json.loads(_fetch(base + "/version", 10)).get("version") or ""
         if not remote or _ver(remote) <= _ver(config.APP_VERSION):
             return remote or config.APP_VERSION, None
-        return remote, _fetch(base + "/update.zip", 120)
+        # /update.zip 503s when the relay's download queue is full -
+        # honor Retry-After and wait for a slot instead of failing
+        for attempt in range(4):
+            try:
+                return remote, _fetch(base + "/update.zip", 120)
+            except urllib.error.HTTPError as e:
+                if e.code != 503 or attempt == 3:
+                    raise
+                time.sleep(min(int(e.headers.get("Retry-After", "5")), 15))
     except Exception:
         return None
 
