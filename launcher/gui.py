@@ -119,7 +119,6 @@ class LauncherApp(ctk.CTk):
         self._live_heap = {}    # instance_id -> last jstat sample dict
         self._session_advice = {}  # instance_id -> RAM suggestion text
         self._nav_dots = {}     # nav name -> red-dot badge widget
-        self._nav_hover = set()  # nav names currently hovered
         self._unread = set()    # friends with unread messages
         self._new_requests = False
         self._chat_open = set()  # friends with an open chat window
@@ -195,9 +194,11 @@ class LauncherApp(ctk.CTk):
             )
             btn.pack(fill="x", padx=12, pady=2)
             btn.bind("<Enter>",
-                     lambda e, n=name: self._sync_badge_bg(n, True), add="+")
+                     lambda e, n=name: self._sync_badge_bg(n), add="+")
             btn.bind("<Leave>",
-                     lambda e, n=name: self._sync_badge_bg(n, False), add="+")
+                     lambda e, n=name: self._sync_badge_bg(n), add="+")
+            btn.bind("<ButtonRelease-1>",
+                     lambda e, n=name: self._sync_badge_bg(n), add="+")
             self.nav_buttons[name] = btn
 
         self.version_label = ctk.CTkLabel(
@@ -3737,20 +3738,24 @@ class LauncherApp(ctk.CTk):
 
     # ------------------------------------------------- nav badges + inbox
 
-    def _sync_badge_bg(self, name, hover=None):
-        if hover is not None:
-            if hover:
-                self._nav_hover.add(name)
-            else:
-                self._nav_hover.discard(name)
-        dot = self._nav_dots.get(name)
-        if dot is None:
+    def _sync_badge_bg(self, name):
+        """Match the dot's bg to the button's *actually painted* color.
+        Two delayed passes: one for hover/state repaints, one to catch
+        CTk's ~100ms post-click re-highlight."""
+        btn = self.nav_buttons.get(name)
+        if btn is None:
             return
-        bg = (PALETTE["nav"] if name in self._nav_hover
-              else PALETTE["accent"]
-              if getattr(self, "_active_page", "") == name
-              else PALETTE["sidebar"])
-        dot.configure(bg=bg)
+        def apply():
+            dot = self._nav_dots.get(name)
+            if dot is None:
+                return
+            try:
+                col = btn._canvas.itemcget("inner_parts", "fill")
+            except Exception:
+                col = ""
+            dot.configure(bg=col or PALETTE["sidebar"])
+        btn.after(20, apply)
+        btn.after(160, apply)
 
     def _set_nav_badge(self, name, on):
         """Discord-style red dot on a nav button."""
