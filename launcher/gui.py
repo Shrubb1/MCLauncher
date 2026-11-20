@@ -2791,6 +2791,10 @@ class LauncherApp(ctk.CTk):
             upd_row, text="Check for updates", width=150, font=FONT,
             command=self._check_update)
         self.update_btn.pack(side="left")
+        ctk.CTkLabel(upd_row, text=f"v{config.APP_VERSION} installed",
+                     font=FONT_SMALL,
+                     text_color=("gray60", "gray60")).pack(side="left",
+                                                           padx=10)
         self.update_restart_btn = ctk.CTkButton(
             upd_row, text="Restart now", width=110, font=FONT_SMALL,
             command=self._restart_launcher)

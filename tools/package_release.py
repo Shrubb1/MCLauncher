@@ -7,6 +7,8 @@ a GitHub Release (or send directly).
     python tools/package_release.py
 """
 
+import importlib
+import re
 import shutil
 import subprocess
 import sys
@@ -33,7 +35,22 @@ def ignore(_dir, names):
             if n in IGNORE_NAMES or Path(n).suffix in IGNORE_EXTS]
 
 
+def bump_version():
+    """Auto-bump the patch number in launcher/config.py so every
+    packaged build has a fresh version the updater can detect."""
+    cfg = ROOT / "launcher" / "config.py"
+    text = cfg.read_text()
+    m = re.search(r'APP_VERSION = "(\d+)\.(\d+)\.(\d+)"', text)
+    if not m:
+        raise SystemExit("APP_VERSION not found in config.py")
+    new = f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"
+    cfg.write_text(text.replace(m.group(0), f'APP_VERSION = "{new}"'))
+    importlib.reload(config)
+    return new
+
+
 def main():
+    print(f"version -> {bump_version()}")
     if STAGE.exists():
         shutil.rmtree(STAGE, ignore_errors=True)
         if (STAGE / ".venv").is_dir():
