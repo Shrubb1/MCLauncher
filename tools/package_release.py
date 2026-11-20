@@ -23,7 +23,7 @@ ZIP = OUT / "MCLauncher.zip"
 
 IGNORE_NAMES = {
     ".venv", ".git", ".gradle", "__pycache__", "build", "release",
-    "ok_test.txt", "relay.db",
+    "ok_test.txt", "relay.db", "update.zip", "version.txt",
 }
 IGNORE_EXTS = {".pyc", ".db", ".wal", ".shm", ".log"}
 
