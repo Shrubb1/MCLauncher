@@ -55,6 +55,16 @@ NAV_KEYWORDS = {
                  "mouse scroll mods folder jar download",
 }
 
+# featured servers shown on the Servers page
+POPULAR_SERVERS = (
+    ("hypixel.net", "Hypixel"),
+    ("2b2t.org", "2b2t"),
+    ("play.cubecraft.net", "CubeCraft"),
+    ("play.wynncraft.com", "Wynncraft"),
+    ("manacube.com", "ManaCube"),
+    ("na.minemen.club", "Minemen"),
+)
+
 JVM_PRESETS = {
     "Standard (recommended)": "",
     "Low memory / older PC": "-XX:+UseG1GC -XX:MaxGCPauseMillis=130 "
@@ -595,7 +605,6 @@ class LauncherApp(ctk.CTk):
     def _build_servers(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(1, weight=1)
 
         top = ctk.CTkFrame(frame, fg_color="transparent")
         top.grid(row=0, column=0, sticky="ew", padx=8, pady=(20, 8))
@@ -635,11 +644,18 @@ class LauncherApp(ctk.CTk):
         self._server_status = {}    # host -> probe dict | None (offline)
         self._server_favicons = {}  # host -> CTkImage
         self._server_rows = {}      # host -> widget refs (rebuilt per render)
+        self._popular_refs = {}     # popular-host -> widget refs
+
+        # ---- popular servers strip ----
+        self._popular_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        self._popular_frame.grid(row=2, column=0, sticky="ew",
+                                 padx=8, pady=(0, 8))
+        self._render_popular()
 
         self.servers_scroll = _scroll_frame(frame)
-        self.servers_scroll.grid(row=2, column=0, sticky="nsew",
+        self.servers_scroll.grid(row=3, column=0, sticky="nsew",
                                  padx=8, pady=(0, 16))
-        frame.grid_rowconfigure(2, weight=1)
+        frame.grid_rowconfigure(3, weight=1)
         return frame
 
     def _probe_server(self):
@@ -765,6 +781,48 @@ class LauncherApp(ctk.CTk):
                       command=make_instance).pack(side="right", padx=10,
                                                   pady=8)
 
+    def _render_popular(self):
+        pf = self._popular_frame
+        for w in pf.winfo_children():
+            w.destroy()
+        self._popular_refs = {}
+        ctk.CTkLabel(pf, text="POPULAR SERVERS", font=FONT_SMALL,
+                     text_color=("gray35", "gray60")
+                     ).pack(anchor="w", padx=6, pady=(0, 6))
+        grid = ctk.CTkFrame(pf, fg_color="transparent")
+        grid.pack(fill="x")
+        for c in range(3):
+            grid.grid_columnconfigure(c, weight=1, uniform="pop")
+        for i, (host, label) in enumerate(POPULAR_SERVERS):
+            card = ctk.CTkFrame(grid, fg_color=PALETTE["card"],
+                                corner_radius=8)
+            card.grid(row=i // 3, column=i % 3, sticky="ew", padx=4, pady=4)
+            icon = self._server_icon_box(
+                card, label, self._server_favicons.get(host))
+            icon.configure(width=32, height=32)
+            icon.pack(side="left", padx=(8, 10), pady=8)
+            col = ctk.CTkFrame(card, fg_color="transparent")
+            col.pack(side="left", fill="x", expand=True, pady=6)
+            ctk.CTkLabel(col, text=label, font=FONT_BOLD,
+                         anchor="w").pack(fill="x")
+            st = ctk.CTkLabel(col, text="pinging...", font=FONT_SMALL,
+                              anchor="w", text_color=("gray35", "gray60"))
+            st.pack(fill="x")
+            self._popular_refs[host] = {"status": st, "icon": icon}
+
+            def _clicks(w, h=host):
+                w.configure(cursor="hand2")
+                w.bind("<Button-1>", lambda e: self._probe_popular(h))
+                for c in w.winfo_children():
+                    _clicks(c)
+            _clicks(card)
+            self._ping_server_row(host)
+
+    def _probe_popular(self, host):
+        self.probe_entry.delete(0, "end")
+        self.probe_entry.insert(0, host)
+        self._probe_server()
+
     def _render_servers(self):
         if not hasattr(self, "servers_scroll"):
             return
@@ -872,7 +930,7 @@ class LauncherApp(ctk.CTk):
             fav = self._favicon_image(r)
             if fav:
                 self._server_favicons[host] = fav
-        refs = self._server_rows.get(host)
+        refs = self._server_rows.get(host) or self._popular_refs.get(host)
         if not refs:
             return
         try:
@@ -880,24 +938,39 @@ class LauncherApp(ctk.CTk):
                 return
         except Exception:
             return
-        if r is None:
-            refs["status"].configure(
-                text="  ● offline", text_color=("#c0392b", "#c0392b"))
-            refs["players"].configure(text="")
+        players = (r or {}).get("players") or {}
+        if "players" in refs:
+            # recent-servers row: separate status + players labels
+            if r is None:
+                refs["status"].configure(
+                    text="  ● offline",
+                    text_color=("#c0392b", "#c0392b"))
+                refs["players"].configure(text="")
+            else:
+                refs["status"].configure(
+                    text="  ● online",
+                    text_color=("#25a34a", "#25a34a"))
+                refs["players"].configure(
+                    text=f"{players.get('online', '?')}/"
+                         f"{players.get('max', '?')} online")
         else:
-            players = r.get("players") or {}
-            refs["status"].configure(
-                text="  ● online", text_color=("#25a34a", "#25a34a"))
-            refs["players"].configure(
-                text=f"{players.get('online', '?')}/"
-                     f"{players.get('max', '?')} online")
-            if host in self._server_favicons:
-                for w in refs["icon"].winfo_children():
-                    w.destroy()
-                ctk.CTkLabel(
-                    refs["icon"],
-                    image=self._server_favicons[host],
-                    text="").pack(expand=True)
+            # popular card: one compact status line
+            if r is None:
+                refs["status"].configure(
+                    text="● offline",
+                    text_color=("#c0392b", "#c0392b"))
+            else:
+                n = players.get("online", "?")
+                cnt = f"{n:,}" if isinstance(n, int) else str(n)
+                refs["status"].configure(
+                    text=f"● {cnt} online",
+                    text_color=("#25a34a", "#25a34a"))
+        if r is not None and host in self._server_favicons:
+            for w in refs["icon"].winfo_children():
+                w.destroy()
+            ctk.CTkLabel(refs["icon"],
+                         image=self._server_favicons[host],
+                         text="").pack(expand=True)
 
     def _save_current_as_instance(self):
         loader_id = self._current_loader()
