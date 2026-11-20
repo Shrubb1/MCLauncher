@@ -2069,8 +2069,15 @@ class LauncherApp(ctk.CTk):
 
         if user["admin"]:
             acard = self._form_card("Admin - users")
+            ctk.CTkLabel(
+                acard,
+                text="Type a profile username to manage its license - "
+                     "asks for your password each time.",
+                font=FONT_SMALL, text_color=("gray60", "gray60"),
+                wraplength=560, justify="left").pack(
+                anchor="w", padx=12, pady=(0, 6))
             grant_row = ctk.CTkFrame(acard, fg_color="transparent")
-            grant_row.pack(fill="x", padx=12, pady=(0, 8))
+            grant_row.pack(fill="x", padx=12, pady=(0, 10))
             self.admin_grant_entry = ctk.CTkEntry(
                 grant_row, placeholder_text="username", width=160,
                 font=FONT)
@@ -2082,55 +2089,14 @@ class LauncherApp(ctk.CTk):
                 command=lambda: self._admin_set_license(
                     self.admin_grant_entry.get(), True)
             ).pack(side="left", padx=8)
-            if user.get("token"):
-                holder = ctk.CTkLabel(acard, text="Loading...",
-                                      font=FONT_SMALL,
-                                      text_color=("gray60", "gray60"))
-                holder.pack(anchor="w", padx=12, pady=(0, 10))
-
-                def fetch_admin():
-                    from . import chat
-                    try:
-                        r = chat.admin_users(user["token"])
-                        rows = r.get("users", [])
-                    except Exception:
-                        rows = None
-                    self.ui_call(self._fill_admin_rows, acard, holder, rows)
-
-                threading.Thread(target=fetch_admin, daemon=True).start()
-            else:
-                rows = [{"name": rec.get("name", uname),
-                         "licensed": bool(rec.get("licensed")),
-                         "admin": bool(rec.get("admin")),
-                         "key": uname}
-                        for uname, rec in sorted(users.list_users().items())]
-                self._fill_admin_rows(acard, None, rows)
-        self._refresh_session("profile")
-
-    def _fill_admin_rows(self, acard, holder, rows):
-        if holder is not None:
-            holder.destroy()
-        if rows is None:
-            ctk.CTkLabel(acard, text="Failed to load users",
-                         font=FONT_SMALL,
-                         text_color=("#e05252", "#e05252")
-                         ).pack(anchor="w", padx=12, pady=(0, 10))
-            return
-        for rec in rows:
-            urow = ctk.CTkFrame(acard, fg_color="transparent")
-            urow.pack(fill="x", padx=12, pady=2)
-            mark = " [admin]" if rec.get("admin") else ""
-            ctk.CTkLabel(urow, text=f"{rec['name']}{mark}",
-                         font=FONT).pack(side="left")
-            state = bool(rec.get("licensed"))
-            key = rec.get("key") or rec["name"]
             ctk.CTkButton(
-                urow, text="Revoke license" if state else "Grant license",
-                width=110, font=FONT_SMALL,
-                fg_color=("#a33", "#a33") if state else ("#1a7f37", "#1a7f37"),
-                hover_color=("#c44", "#c44") if state else ("#25a34a", "#25a34a"),
-                command=lambda u=key, s=state: self._admin_set_license(u, not s)
-            ).pack(side="right")
+                grant_row, text="Revoke license", width=100,
+                font=FONT_SMALL, fg_color=("#a33", "#a33"),
+                hover_color=("#c44", "#c44"),
+                command=lambda: self._admin_set_license(
+                    self.admin_grant_entry.get(), False)
+            ).pack(side="left", padx=4)
+        self._refresh_session("profile")
 
     def _copy(self, text):
         self.clipboard_clear()
