@@ -3746,11 +3746,11 @@ class LauncherApp(ctk.CTk):
         dot = self._nav_dots.get(name)
         if dot is None:
             return
-        fg = (PALETTE["nav"] if name in self._nav_hover
+        bg = (PALETTE["nav"] if name in self._nav_hover
               else PALETTE["accent"]
               if getattr(self, "_active_page", "") == name
-              else "transparent")
-        dot.configure(fg_color=fg)
+              else PALETTE["sidebar"])
+        dot.configure(bg=bg)
 
     def _set_nav_badge(self, name, on):
         """Discord-style red dot on a nav button."""
@@ -3759,9 +3759,11 @@ class LauncherApp(ctk.CTk):
             return
         dot = self._nav_dots.get(name)
         if on and dot is None:
-            dot = ctk.CTkLabel(btn, text="●", font=FONT_BOLD,
-                               text_color="#e05252")
-            dot.place(relx=1.0, x=-14, rely=0.5, anchor="e")
+            dot = tk.Canvas(btn, width=15, height=15,
+                            highlightthickness=0, bd=0)
+            dot.create_oval(1.5, 1.5, 13.5, 13.5, fill="#e05252",
+                            outline=PALETTE["badge_ring"], width=2)
+            dot.place(relx=1.0, x=-16, rely=0.5, anchor="e")
             dot.bind("<Button-1>",
                      lambda e, n=name: self._show_page(n))
             self._nav_dots[name] = dot

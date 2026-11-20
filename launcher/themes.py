@@ -138,12 +138,12 @@ _DEFS = {
               "#1a1d21", "#292d33", "#191c20", "#22262b", 4,
               {"sidebar": "#090a0b", "card": "#15171a", "muted": "#22262b",
                "muted_hover": "#30353d", "nav": "#22262b",
-               "accent": "#6b7480"}),
+               "accent": "#6b7480", "badge_ring": "#f2f4f8"}),
     "white": ("#374151", "#2b3442", "#ffffff", "#f4f5f7", "#ffffff",
               "#eceef1", "#d4d8de", "#ffffff", "#dfe3e9", 4,
               {"sidebar": "#e9ebef", "card": "#ffffff", "muted": "#dfe3e9",
                "muted_hover": "#c8cdd5", "nav": "#dfe3e9",
-               "accent": "#4b5563"}),
+               "accent": "#4b5563", "badge_ring": "#111827"}),
 }
 
 THEMES = list(_DEFS)
