@@ -119,6 +119,7 @@ class LauncherApp(ctk.CTk):
         self._live_heap = {}    # instance_id -> last jstat sample dict
         self._session_advice = {}  # instance_id -> RAM suggestion text
         self._nav_dots = {}     # nav name -> red-dot badge widget
+        self._nav_hover = set()  # nav names currently hovered
         self._unread = set()    # friends with unread messages
         self._new_requests = False
         self._chat_open = set()  # friends with an open chat window
@@ -193,6 +194,10 @@ class LauncherApp(ctk.CTk):
                 hover_color=PALETTE["nav"], command=lambda n=name: self._show_page(n),
             )
             btn.pack(fill="x", padx=12, pady=2)
+            btn.bind("<Enter>",
+                     lambda e, n=name: self._sync_badge_bg(n, True), add="+")
+            btn.bind("<Leave>",
+                     lambda e, n=name: self._sync_badge_bg(n, False), add="+")
             self.nav_buttons[name] = btn
 
         self.version_label = ctk.CTkLabel(
@@ -239,6 +244,8 @@ class LauncherApp(ctk.CTk):
                 frame.grid_remove()
                 self.nav_buttons[page_name].configure(fg_color="transparent",
                                                       text_color=("gray80", "gray80"))
+        for n in self.nav_buttons:
+            self._sync_badge_bg(n)
 
     # ------------------------------------------------------------- Home page
 
@@ -3726,6 +3733,21 @@ class LauncherApp(ctk.CTk):
 
     # ------------------------------------------------- nav badges + inbox
 
+    def _sync_badge_bg(self, name, hover=None):
+        if hover is not None:
+            if hover:
+                self._nav_hover.add(name)
+            else:
+                self._nav_hover.discard(name)
+        dot = self._nav_dots.get(name)
+        if dot is None:
+            return
+        fg = (PALETTE["nav"] if name in self._nav_hover
+              else PALETTE["accent"]
+              if getattr(self, "_active_page", "") == name
+              else "transparent")
+        dot.configure(fg_color=fg)
+
     def _set_nav_badge(self, name, on):
         """Discord-style red dot on a nav button."""
         btn = self.nav_buttons.get(name)
@@ -3736,7 +3758,10 @@ class LauncherApp(ctk.CTk):
             dot = ctk.CTkLabel(btn, text="●", font=FONT_BOLD,
                                text_color="#e05252")
             dot.place(relx=1.0, x=-14, rely=0.5, anchor="e")
+            dot.bind("<Button-1>",
+                     lambda e, n=name: self._show_page(n))
             self._nav_dots[name] = dot
+            self._sync_badge_bg(name)
         elif not on and dot is not None:
             dot.place_forget()
             self._nav_dots.pop(name, None)
