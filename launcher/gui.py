@@ -2002,8 +2002,8 @@ class LauncherApp(ctk.CTk):
         note = ("Account on the chat server - works across PCs and unlocks "
                 "Friends. Buying the client mod flips 'licensed' on it."
                 if users.online_mode() else
-                "Local-only account on this PC (set 'Chat server' in Settings "
-                "for online accounts). Buying the mod flips 'licensed'.")
+                "Local-only account on this PC. "
+                "Buying the mod flips 'licensed'.")
         ctk.CTkLabel(su_card, text=note,
                      font=FONT_SMALL, text_color=("gray60", "gray60"),
                      wraplength=560, justify="left"
@@ -2179,8 +2179,8 @@ class LauncherApp(ctk.CTk):
         if not user.get("token"):
             ctk.CTkLabel(
                 self.friends_scroll,
-                text="Friends needs an online account - set 'Chat server' in "
-                     "Settings, then sign out and back in on Profile.",
+                text="Friends needs an online account - sign out and back "
+                     "in on Profile.",
                 font=FONT, text_color=("gray60", "gray60"),
                 wraplength=560, justify="left").pack(pady=20)
             return
@@ -2206,11 +2206,10 @@ class LauncherApp(ctk.CTk):
         for child in self.friends_scroll.winfo_children():
             child.destroy()
         if err:
-            self.friends_status.configure(text=f"Chat server: {err}")
+            self.friends_status.configure(text="Not connected")
             return
         self._last_friends_data = data
-        self.friends_status.configure(
-            text=f"Chat server: {chat.base_url()} - connected")
+        self.friends_status.configure(text="Connected")
 
         # add friend
         card = self._form_card("Add friend", parent=self.friends_scroll,
@@ -2737,12 +2736,7 @@ class LauncherApp(ctk.CTk):
         row(12, "Resolution width", "resolution_width", width=120)
         row(13, "Resolution height", "resolution_height", width=120)
 
-        row(14, "Chat server URL", "chat_server")
-        ctk.CTkLabel(frame,
-                     text="e.g. http://localhost:8765 - point it at the relay "
-                          "(server/relay.py). Enables Friends + online accounts.",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(
-            row=15, column=1, sticky="w", padx=8)
+
 
         row(16, "Log alert patterns", "alert_patterns")
         ctk.CTkLabel(frame,
