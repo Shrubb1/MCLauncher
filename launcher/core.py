@@ -198,6 +198,93 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
     return subprocess.Popen(command, cwd=game_dir, **flags)
 
 
+def _ver_key(v: str) -> tuple:
+    m = re.match(r"\s*\d+(?:\.\d+)*", v or "")
+    nums = [int(x) for x in m.group(0).split(".")] if m else [0]
+    while len(nums) < 3:
+        nums.append(0)
+    pre = 0 if re.search(r"pre|rc", v or "", re.I) else 1
+    return (tuple(nums[:3]), pre)
+
+
+def _v_cmp(a: str, b: str) -> int:
+    ka, kb = _ver_key(a), _ver_key(b)
+    return (ka > kb) - (ka < kb)
+
+
+def mc_satisfies(constraint: str, mc: str) -> bool:
+    """Does <mc> satisfy a fabric.mod.json 'depends.minecraft' range?
+    Supports *, exact, ~X.Y(-), >=/</<=/> , [a,b) ranges, and '||'/' '."""
+    c = (constraint or "").strip()
+    if not c or c == "*":
+        return True
+    for alt in c.split("||"):
+        ok = True
+        for part in alt.split():
+            if not part or part == "*":
+                continue
+            if part.startswith("~"):
+                base = part[1:].rstrip("-")
+                nums = [int(x) for x in re.findall(r"\d+", base)]
+                hi = ((nums[0] + 1, 0, 0) if len(nums) == 1
+                      else (nums[0], nums[1] + 1, 0))
+                # trailing '-' (e.g. ~26.2-) includes that series' prereleases
+                lo_key = (_ver_key(base)[0],
+                          0 if part.endswith("-") else 1)
+                mk = _ver_key(mc)
+                if mk < lo_key or mk >= (hi, 1):
+                    ok = False
+                    break
+            elif part[0] in "[(":
+                lo_s, _, hi_s = part.strip("[]()").partition(",")
+                if lo_s.strip():
+                    d = _v_cmp(mc, lo_s.strip())
+                    if d < 0 or (d == 0 and not part.startswith("[")):
+                        ok = False
+                        break
+                if hi_s.strip():
+                    d = _v_cmp(mc, hi_s.strip())
+                    if d > 0 or (d == 0 and not part.endswith("]")):
+                        ok = False
+                        break
+            elif part[:2] in (">=", "<=", "==", "!="):
+                d = _v_cmp(mc, part[2:])
+                op = part[:2]
+                if (op == ">=" and d < 0) or (op == "<=" and d > 0) or \
+                        (op == "==" and d != 0) or (op == "!=" and d == 0):
+                    ok = False
+                    break
+            elif part[0] in "<>":
+                d = _v_cmp(mc, part[1:])
+                if (part[0] == ">" and d <= 0) or (part[0] == "<" and d >= 0):
+                    ok = False
+                    break
+            elif _v_cmp(mc, part) != 0:
+                ok = False
+                break
+        if ok:
+            return True
+    return False
+
+
+def client_mod_for(mc_version: str):
+    """(jar_path, None) if the bundled client mod declares compatibility
+    with mc_version, else (None, human reason)."""
+    jar = client_mod_jar()
+    if not jar:
+        return None, "not installed"
+    try:
+        import zipfile as _zf
+        with _zf.ZipFile(jar) as z:
+            meta = json.loads(z.read("fabric.mod.json"))
+        decl = (meta.get("depends") or {}).get("minecraft") or ""
+        if decl and not mc_satisfies(decl, mc_version):
+            return None, f"built for Minecraft {decl}, not {mc_version}"
+    except Exception:
+        pass
+    return jar, None
+
+
 def client_mod_jar() -> str | None:
     """Stable path to the built-in client mod jar, if it exists.
 

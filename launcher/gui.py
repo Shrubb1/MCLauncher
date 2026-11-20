@@ -1281,9 +1281,9 @@ class LauncherApp(ctk.CTk):
         self._render_instances()
 
     def _instance_dir(self, inst):
-        if inst.get("separate_game_dir", True):
-            return config.CONFIG_DIR / "instances" / inst["id"]
-        return Path(self.settings["game_dir"])
+        # Instances are always isolated - separate_game_dir only survives
+        # as a legacy field; nothing ever runs inside the shared .minecraft.
+        return config.CONFIG_DIR / "instances" / inst["id"]
 
     def _instance_mods_dir(self, inst):
         mods = self._instance_dir(inst) / "mods"
@@ -2416,41 +2416,33 @@ class LauncherApp(ctk.CTk):
                      placeholder_text=f"default {self.settings.get('default_ram_mb', '4096')}").grid(
             row=4, column=1, sticky="w", padx=(0, 20), pady=6)
 
-        ctk.CTkLabel(dlg, text="Own game directory", font=FONT).grid(row=5, column=0, sticky="w", padx=20, pady=6)
-        sep_var = tk.BooleanVar(value=bool(data.get("separate_game_dir", True)))
-        sep_row = ctk.CTkFrame(dlg, fg_color="transparent")
-        sep_row.grid(row=5, column=1, sticky="w", padx=(0, 20), pady=6)
-        ctk.CTkCheckBox(sep_row, text="Isolated", variable=sep_var, font=FONT).pack(side="left")
-        ctk.CTkLabel(sep_row, text="own mods/saves - no conflicts with other versions",
-                     font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
-
-        ctk.CTkLabel(dlg, text="Shared assets", font=FONT).grid(row=6, column=0, sticky="w", padx=20, pady=6)
+        ctk.CTkLabel(dlg, text="Shared assets", font=FONT).grid(row=5, column=0, sticky="w", padx=20, pady=6)
         shared_var = tk.BooleanVar(value=bool(data.get("shared_assets")))
         shared_row = ctk.CTkFrame(dlg, fg_color="transparent")
-        shared_row.grid(row=6, column=1, sticky="w", padx=(0, 20), pady=6)
+        shared_row.grid(row=5, column=1, sticky="w", padx=(0, 20), pady=6)
         ctk.CTkCheckBox(shared_row, text="Share packs & screenshots",
                         variable=shared_var, font=FONT).pack(side="left")
         ctk.CTkLabel(shared_row, text="resourcepacks/shaderpacks/screenshots/schematics "
                                       "shared across all your instances",
                      font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
-        ctk.CTkLabel(dlg, text="Auto-join server", font=FONT).grid(row=7, column=0, sticky="w", padx=20, pady=6)
+        ctk.CTkLabel(dlg, text="Auto-join server", font=FONT).grid(row=6, column=0, sticky="w", padx=20, pady=6)
         server_var = tk.StringVar(value=data.get("server", "") or "")
         ctk.CTkEntry(dlg, textvariable=server_var, font=FONT,
                      placeholder_text="e.g. hypixel.net (blank = global setting)"
-                     ).grid(row=7, column=1, sticky="ew", padx=(0, 20), pady=6)
+                     ).grid(row=6, column=1, sticky="ew", padx=(0, 20), pady=6)
 
-        ctk.CTkLabel(dlg, text="Server port", font=FONT).grid(row=8, column=0, sticky="w", padx=20, pady=6)
-        port_var = tk.StringVar(value=data.get("server_port", "") or "")
+        ctk.CTkLabel(dlg, text="Server port", font=FONT).grid(row=7, column=0, sticky="w", padx=20, pady=6)
+        port_var = tk.StringVar(value=data.get("server_port") or "")
         ctk.CTkEntry(dlg, textvariable=port_var, font=FONT,
-                     placeholder_text="25565").grid(row=8, column=1, sticky="w",
+                     placeholder_text="25565").grid(row=7, column=1, sticky="w",
                                                     padx=(0, 20), pady=6)
 
         ctk.CTkLabel(dlg, text="Icon", font=FONT).grid(
-            row=9, column=0, sticky="w", padx=20, pady=6)
+            row=8, column=0, sticky="w", padx=20, pady=6)
         icon_var = tk.StringVar(value=str(data.get("icon") or ""))
         icon_row = ctk.CTkFrame(dlg, fg_color="transparent")
-        icon_row.grid(row=9, column=1, sticky="w", padx=(0, 20), pady=6)
+        icon_row.grid(row=8, column=1, sticky="w", padx=(0, 20), pady=6)
         icon_entry = ctk.CTkEntry(icon_row, textvariable=icon_var,
                                   width=70, font=FONT,
                                   placeholder_text="emoji")
@@ -2623,7 +2615,7 @@ class LauncherApp(ctk.CTk):
                 "id": inst_id, "name": name, "loader_id": lid,
                 "mc_version": mc, "loader_version": lv,
                 "ram_mb": ram,
-                "separate_game_dir": sep_var.get(),
+                "separate_game_dir": True,
                 "shared_assets": shared_var.get(),
                 "client_mod": data.get("client_mod", True),
                 "server": server_var.get().strip(),
@@ -2640,7 +2632,7 @@ class LauncherApp(ctk.CTk):
             self.instances = insts
             self._render_instances()
             dlg.destroy()
-            if entry["separate_game_dir"] and shared_var.get():
+            if shared_var.get():
                 inst_dir = str(config.CONFIG_DIR / "instances" / inst_id)
                 linked = sum(
                     core.ensure_shared_link(inst_dir, name,
@@ -3973,8 +3965,12 @@ class LauncherApp(ctk.CTk):
             want_cmod = users.is_licensed() or \
                 (inst and inst.get("client_mod"))
             if want_cmod and loader_id in ("vanilla", "fabric", "quilt"):
-                cmod_jar = core.client_mod_jar()
-                if cmod_jar and loader_id == "vanilla":
+                cmod_jar, cmod_why = core.client_mod_for(mc_version)
+                if cmod_jar is None:
+                    if cmod_why and cmod_why != "not installed":
+                        self.ui_call(self._set_status,
+                                     f"Client mod skipped - {cmod_why}")
+                elif loader_id == "vanilla":
                     lv = core.loader_versions("fabric", mc_version,
                                               stable_only=True) or \
                         core.loader_versions("fabric", mc_version,
@@ -4004,9 +4000,14 @@ class LauncherApp(ctk.CTk):
             log_path = str(config.CONFIG_DIR / (
                 f"game_output_{instance_id}.log" if instance_id
                 else "game_output.log"))
-            run_dir = None
-            if separate_dir and instance_id:
+            # Every launch is isolated: instances get their own dir, quick
+            # play gets a dedicated sandbox - .minecraft/mods is never read,
+            # so other launchers' mods can't bleed into our launches.
+            if instance_id:
                 run_dir = str(config.CONFIG_DIR / "instances" / instance_id)
+            else:
+                run_dir = str(config.CONFIG_DIR / "quickplay")
+            if instance_id:
                 if (inst or {}).get("shared_assets"):
                     for name in core.SHARED_FOLDER_NAMES:
                         core.ensure_shared_link(run_dir, name,
