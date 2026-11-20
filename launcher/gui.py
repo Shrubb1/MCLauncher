@@ -42,6 +42,8 @@ FILTER_DEBOUNCE_MS = 250
 
 # sidebar search: which features "live" under each nav page
 NAV_KEYWORDS = {
+    "dashboard": "dashboard home main news continue friends online "
+                 "announcements jump back play last",
     "profile":   "profile license key username sign in activate code admin",
     "home":      "play launch version minecraft new create start game run instance",
     "instances": "instance mods mod folder worlds screenshots shots share "
@@ -145,6 +147,9 @@ class LauncherApp(ctk.CTk):
         self._session_advice = {}  # instance_id -> RAM suggestion text
         self._nav_dots = {}     # nav name -> red-dot badge widget
         self._toasts = []       # stacked in-app toast widgets
+        self._friends_presence = {}  # name -> {state,server,instance,mc_version}
+        self._running_servers = {}  # iid -> actual joined server for presence
+        self._mod_updates = {}    # instance_id -> [outdated mod dicts]
         self._unread = set()    # friends with unread messages
         self._new_requests = False
         self._chat_open = set()  # friends with an open chat window
@@ -166,7 +171,7 @@ class LauncherApp(ctk.CTk):
         self._account_var = tk.StringVar(value="")
 
         self._build_ui()
-        self._show_page("home")
+        self._show_page("dashboard")
         self._refresh_account_menu()
         self._update_dismissed = None
         self._pending_update = None
@@ -221,7 +226,8 @@ class LauncherApp(ctk.CTk):
         self._nav_search.bind("<Escape>", lambda e: self._nav_search_clear())
 
         self.nav_buttons = {}
-        for name, label in (("profile", "Profile"), ("home", "Play"),
+        for name, label in (("dashboard", "Dashboard"),
+                            ("profile", "Profile"), ("home", "Play"),
                             ("instances", "Instances"),
                             ("servers", "Servers"), ("accounts", "Accounts"),
                             ("friends", "Friends"), ("settings", "Settings"),
@@ -265,6 +271,7 @@ class LauncherApp(ctk.CTk):
         content.grid_rowconfigure(1, weight=1)
 
         self.pages = {
+            "dashboard": self._build_dashboard(content),
             "home": self._build_home(content),
             "instances": self._build_instances(content),
             "servers": self._build_servers(content),
@@ -279,7 +286,9 @@ class LauncherApp(ctk.CTk):
             frame.grid_remove()
 
     def _show_page(self, name):
-        if name == "servers":
+        if name == "dashboard":
+            self._render_dashboard()
+        elif name == "servers":
             self._render_servers()
         elif name == "profile":
             self._render_profile()
@@ -480,7 +489,9 @@ class LauncherApp(ctk.CTk):
             ).pack(pady=20)
             return
 
-        ordered = sorted(self.instances, key=lambda i: i.get("last_played", 0), reverse=True)
+        ordered = sorted(
+            self.instances,
+            key=lambda i: (not i.get("pinned"), -i.get("last_played", 0)))
         for inst in ordered:
             card = ctk.CTkFrame(self.instances_scroll, fg_color=PALETTE["card"])
             card.pack(fill="x", pady=4, padx=4)
@@ -495,10 +506,15 @@ class LauncherApp(ctk.CTk):
                 self._bind_ctx(c, lambda: self._instance_ctx_items(i))
             self.after_idle(_card_extras)
 
+            self._instance_icon_box(card, inst).pack(
+                side="left", padx=(10, 0), pady=10)
+
             info = ctk.CTkFrame(card, fg_color="transparent")
             info.pack(side="left", padx=12, pady=10, fill="x", expand=True)
 
             name_text = inst.get("name", "Instance")
+            if inst.get("pinned"):
+                name_text = "★ " + name_text
             if inst["id"] in self._running:
                 name_text = "● " + name_text
             if inst["id"] in self._hung:
@@ -533,6 +549,12 @@ class LauncherApp(ctk.CTk):
                           fg_color=PALETTE["muted"], hover_color=PALETTE["muted_hover"],
                           command=lambda i=inst: self._open_mod_browser(i)
                           ).pack(side="left", padx=(0, 4))
+            upd = self._mod_updates.get(inst["id"]) or []
+            if upd:
+                ctk.CTkLabel(mini_row, text=f"● {len(upd)} update"
+                                            f"{'s' if len(upd) > 1 else ''}",
+                             font=FONT_SMALL, text_color="#e05252"
+                             ).pack(side="left", padx=(0, 4))
             ctk.CTkButton(mini_row, text="Folder", width=58, height=24, font=FONT_SMALL,
                           fg_color=PALETTE["muted"], hover_color=PALETTE["muted_hover"],
                           command=lambda i=inst: self._instance_open_folder(i)
@@ -566,6 +588,8 @@ class LauncherApp(ctk.CTk):
                           fg_color=PALETTE["muted"],
                           command=lambda i=inst: self._open_instance_editor(i)
                           ).pack(side="right", padx=4, pady=8)
+            self._check_inst_mod_updates(inst)
+
             if inst["id"] in self._running:
                 ctk.CTkButton(card, text="Stop", width=80, font=FONT_SMALL,
                               fg_color=("#a33", "#a33"), hover_color=("#c44", "#c44"),
@@ -601,6 +625,159 @@ class LauncherApp(ctk.CTk):
         return f"{hours}h {mins}m" if mins else f"{hours}h"
 
     # ------------------------------------------------------------ Servers page
+
+    def _build_dashboard(self, parent):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+        top = ctk.CTkFrame(frame, fg_color="transparent")
+        top.grid(row=0, column=0, sticky="ew", padx=8, pady=(20, 8))
+        _title_box(top, "Dashboard").pack(side="left")
+        self.dash_scroll = _scroll_frame(frame)
+        self.dash_scroll.grid(row=1, column=0, sticky="nsew",
+                              padx=8, pady=(0, 16))
+        return frame
+
+    def _render_dashboard(self):
+        scr = self.dash_scroll
+        for w in scr.winfo_children():
+            w.destroy()
+
+        # ---- jump back in ----
+        recent = sorted(self.instances,
+                        key=lambda i: -i.get("last_played", 0))
+        inst = next((i for i in recent if i.get("last_played")), None)
+        card = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
+        card.pack(fill="x", pady=4, padx=4)
+        if inst:
+            self._instance_icon_box(card, inst, 56).pack(
+                side="left", padx=14, pady=14)
+            info = ctk.CTkFrame(card, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True, pady=10)
+            ctk.CTkLabel(info, text="JUMP BACK IN", font=FONT_SMALL,
+                         text_color=("gray35", "gray60")).pack(anchor="w")
+            ctk.CTkLabel(info, text=inst.get("name", "Instance"),
+                         font=FONT_BOLD).pack(anchor="w")
+            secs = int(inst.get("playtime_secs", 0) or 0)
+            meta = inst["mc_version"]
+            if secs:
+                meta += f"  ·  {self._fmt_duration(secs)} played"
+            meta += f"  ·  {self._fmt_last_played(inst.get('last_played', 0))}"
+            ctk.CTkLabel(info, text=meta, font=FONT_SMALL,
+                         text_color=("gray35", "gray60")).pack(anchor="w")
+            ctk.CTkButton(card, text="Play", width=90, height=32,
+                          font=FONT_BOLD,
+                          fg_color=("#1a7f37", "#1a7f37"),
+                          hover_color=("#25a34a", "#25a34a"),
+                          command=lambda i=inst: self._instance_play(i)
+                          ).pack(side="right", padx=14)
+        else:
+            ctk.CTkLabel(card, text="Nothing played yet - pick a version "
+                                    "on the Play tab",
+                         font=FONT, text_color=("gray35", "gray60")
+                         ).pack(pady=18)
+
+        # ---- friends online ----
+        fcard = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
+        fcard.pack(fill="x", pady=4, padx=4)
+        ctk.CTkLabel(fcard, text="Friends online", font=FONT_BOLD
+                     ).pack(anchor="w", padx=12, pady=(10, 2))
+        user = users.current_user()
+        pres = getattr(self, "_friends_presence", {}) or {}
+        online = {n: p for n, p in pres.items()
+                  if p.get("state") in ("game", "launcher")}
+        if not (user and user.get("token")):
+            ctk.CTkLabel(fcard, text="Sign in on Profile to see "
+                                     "who's online",
+                         font=FONT_SMALL, text_color=("gray35", "gray60")
+                         ).pack(anchor="w", padx=12, pady=(0, 12))
+        elif not online:
+            ctk.CTkLabel(fcard, text="No friends online right now",
+                         font=FONT_SMALL, text_color=("gray35", "gray60")
+                         ).pack(anchor="w", padx=12, pady=(0, 12))
+        else:
+            for name, pr in sorted(online.items(),
+                                   key=lambda kv: kv[0].lower()):
+                r = ctk.CTkFrame(fcard, fg_color="transparent")
+                r.pack(fill="x", padx=12, pady=2)
+                st = pr.get("state")
+                ctk.CTkLabel(
+                    r, text="●", font=FONT_SMALL,
+                    text_color=("#25a34a", "#25a34a") if st == "game"
+                    else ("#4a9eff", "#4a9eff")).pack(side="left",
+                                                     padx=(0, 6))
+                ctk.CTkLabel(r, text=name, font=FONT).pack(side="left")
+                txt = (f"Playing {pr.get('instance') or 'Minecraft'}"
+                       + (f" on {pr['server']}" if pr.get("server") else "")
+                       if st == "game" else "In launcher")
+                ctk.CTkLabel(r, text=txt, font=FONT_SMALL,
+                             text_color=("gray35", "gray60")
+                             ).pack(side="left", padx=8)
+                if st == "game" and pr.get("server"):
+                    ctk.CTkButton(
+                        r, text="Join", width=56, height=24,
+                        font=FONT_SMALL,
+                        fg_color=("#1a7f37", "#1a7f37"),
+                        hover_color=("#25a34a", "#25a34a"),
+                        command=lambda n=name, p=pr:
+                            self._join_friend(n, p)
+                        ).pack(side="right", padx=(0, 6))
+                ctk.CTkButton(
+                    r, text="Chat", width=56, height=24, font=FONT_SMALL,
+                    fg_color=PALETTE["muted"],
+                    hover_color=PALETTE["muted_hover"],
+                    command=lambda n=name, t=user["token"]:
+                        (self._show_page("friends"),
+                         self._open_chat(t, n))
+                    ).pack(side="right")
+            ctk.CTkLabel(fcard, text="", font=FONT_SMALL).pack(pady=3)
+
+        # ---- announcements ----
+        acard = ctk.CTkFrame(scr, fg_color=PALETTE["card"], corner_radius=8)
+        acard.pack(fill="x", pady=4, padx=4)
+        self._dash_ann_card = acard
+        ctk.CTkLabel(acard, text="Announcements", font=FONT_BOLD
+                     ).pack(anchor="w", padx=12, pady=(10, 2))
+        self._dash_ann_status = ctk.CTkLabel(
+            acard, text="Loading...", font=FONT_SMALL,
+            text_color=("gray35", "gray60"))
+        self._dash_ann_status.pack(anchor="w", padx=12, pady=(0, 10))
+        threading.Thread(target=self._load_announcements,
+                         daemon=True).start()
+
+    def _load_announcements(self):
+        items = core.fetch_announcements()
+        self.ui_call(self._fill_announcements, items)
+
+    def _fill_announcements(self, items):
+        card = getattr(self, "_dash_ann_card", None)
+        if card is None or not card.winfo_exists():
+            return
+        st = getattr(self, "_dash_ann_status", None)
+        if st is not None and st.winfo_exists():
+            st.destroy()
+        if not items:
+            ctk.CTkLabel(card, text="Nothing new",
+                         font=FONT_SMALL,
+                         text_color=("gray35", "gray60")
+                         ).pack(anchor="w", padx=12, pady=(0, 10))
+            return
+        for it in items[:5]:
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=(0, 8))
+            head = ctk.CTkFrame(row, fg_color="transparent")
+            head.pack(fill="x")
+            ctk.CTkLabel(head, text=it["title"] or "Update",
+                         font=FONT_BOLD).pack(side="left")
+            if it.get("date"):
+                ctk.CTkLabel(head, text=it["date"], font=FONT_SMALL,
+                             text_color=("gray35", "gray60")
+                             ).pack(side="right")
+            if it.get("body"):
+                ctk.CTkLabel(row, text=it["body"][:180], font=FONT_SMALL,
+                             anchor="w", justify="left", wraplength=560,
+                             text_color=("gray35", "gray60")
+                             ).pack(fill="x")
 
     def _build_servers(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -721,6 +898,62 @@ class LauncherApp(ctk.CTk):
             lb = ctk.CTkLabel(box, text=host[:1].upper(), font=FONT_BOLD)
         lb.pack(expand=True)
         return box
+
+    # ------------------------------------------------- instance icons
+
+    def _instance_icon_image(self, inst, size):
+        icon = (inst.get("icon") or "").strip()
+        if not icon.startswith("file:"):
+            return None
+        fname = icon[5:]
+        cache = getattr(self, "_icon_cache", None)
+        if cache is None:
+            cache = self._icon_cache = {}
+        ckey = (fname, size)
+        if ckey in cache:
+            return cache[ckey]
+        path = config.CONFIG_DIR / "icons" / fname
+        if not path.is_file():
+            return None
+        try:
+            from PIL import Image
+            img = ctk.CTkImage(light_image=Image.open(path),
+                               dark_image=Image.open(path),
+                               size=(size, size))
+            cache[ckey] = img
+            return img
+        except Exception:
+            return None
+
+    def _instance_icon_text(self, inst):
+        icon = (inst.get("icon") or "").strip()
+        if icon and not icon.startswith("file:"):
+            return icon[:2]
+        return (inst.get("name") or "?")[:1].upper()
+
+    def _instance_icon_box(self, parent, inst, size=44):
+        box = ctk.CTkFrame(parent, width=size, height=size,
+                           corner_radius=8, fg_color=PALETTE["muted"])
+        box.pack_propagate(False)
+        img = self._instance_icon_image(inst, size)
+        if img is not None:
+            ctk.CTkLabel(box, image=img, text="").pack(expand=True)
+        else:
+            ctk.CTkLabel(box, text=self._instance_icon_text(inst),
+                         font=FONT_BOLD).pack(expand=True)
+        return box
+
+    def _save_instance_icon(self, inst_id, path):
+        """Copy a picked image into CONFIG_DIR/icons/<id>.png. Returns
+        the 'file:' marker to store on the instance."""
+        from PIL import Image
+        icons = config.CONFIG_DIR / "icons"
+        icons.mkdir(parents=True, exist_ok=True)
+        dest = icons / f"{inst_id}.png"
+        img = Image.open(path).convert("RGBA")
+        img.thumbnail((128, 128))
+        img.save(dest)
+        return f"file:{inst_id}.png"
 
     def _pill(self, parent, text):
         p = ctk.CTkFrame(parent, fg_color=PALETTE["card"], corner_radius=8)
@@ -1004,6 +1237,36 @@ class LauncherApp(ctk.CTk):
             "mc_version": mc_version, "loader_version": loader_version or "",
         })
 
+    def _check_inst_mod_updates(self, inst):
+        """One-shot per session: ask Modrinth which tracked mods are old."""
+        iid = inst["id"]
+        if iid in self._mod_updates:
+            return
+        mods_dir = self._instance_mods_dir(inst)
+        if not (mods_dir / ".modrinth_map.json").is_file():
+            return
+
+        def work():
+            try:
+                res = core.check_mod_updates(
+                    str(mods_dir), inst["mc_version"],
+                    inst.get("loader_id", "vanilla"))
+            except Exception:
+                res = []
+            self.ui_call(self._store_mod_updates, iid, res)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _store_mod_updates(self, inst_id, results):
+        self._mod_updates[inst_id] = results
+        total = sum(len(v) for v in self._mod_updates.values())
+        self._set_nav_badge("instances", total > 0)
+        if getattr(self, "_active_page", "") == "instances" and results:
+            self._render_instances()
+
+    def _refresh_instances_badge(self):
+        total = sum(len(v) for v in self._mod_updates.values())
+        self._set_nav_badge("instances", total > 0)
+
     def _instance_delete(self, inst_id):
         inst = next((i for i in self.instances if i.get("id") == inst_id), {})
         name = inst.get("name", "this instance")
@@ -1013,6 +1276,8 @@ class LauncherApp(ctk.CTk):
         self.instances = [i for i in self.instances if i.get("id") != inst_id]
         config.save_instances(self.instances)
         shutil.rmtree(config.CONFIG_DIR / "instances" / inst_id, ignore_errors=True)
+        self._mod_updates.pop(inst_id, None)
+        self._refresh_instances_badge()
         self._render_instances()
 
     def _instance_dir(self, inst):
@@ -1032,6 +1297,7 @@ class LauncherApp(ctk.CTk):
             proc.terminate()
         else:
             self._running.pop(inst_id, None)
+            self._running_servers.pop(inst_id, None)
             self._render_instances()
 
     def _instance_open_folder(self, inst):
@@ -1523,10 +1789,12 @@ class LauncherApp(ctk.CTk):
                     msg = f"{len(res['updated'])} updated, {len(res['current'])} current"
                     if res["failed"]:
                         msg += f", {len(res['failed'])} failed"
+                    self._mod_updates.pop(inst["id"], None)
                     self.ui_call(lambda: (
                         inst_status.configure(text=msg),
                         update_btn.configure(state="normal", text="Update all"),
                         refresh_rollback_state(),
+                        self._check_inst_mod_updates(inst),
                         render_installed()))
                 except Exception as e:
                     self.ui_call(lambda: (
@@ -1569,6 +1837,53 @@ class LauncherApp(ctk.CTk):
         def render_installed():
             for child in installed_list.winfo_children():
                 child.destroy()
+            updates = self._mod_updates.get(inst["id"]) or []
+            if updates:
+                ucard = ctk.CTkFrame(installed_list,
+                                     fg_color=PALETTE["muted"],
+                                     corner_radius=8)
+                ucard.pack(fill="x", pady=(0, 8))
+                ctk.CTkLabel(
+                    ucard, font=FONT_BOLD,
+                    text=f"{len(updates)} mod update"
+                         f"{'s' if len(updates) > 1 else ''} available"
+                    ).pack(anchor="w", padx=10, pady=(8, 2))
+                for u in updates:
+                    ur = ctk.CTkFrame(ucard, fg_color="transparent")
+                    ur.pack(fill="x", padx=10, pady=2)
+                    ctk.CTkLabel(
+                        ur, font=FONT_SMALL, anchor="w",
+                        text=f"{u['current']}  →  {u['latest']}"
+                        ).pack(side="left")
+                    ubtn = ctk.CTkButton(
+                        ur, text="Update", width=70, height=24,
+                        font=FONT_SMALL,
+                        fg_color=("#1a7f37", "#1a7f37"),
+                        hover_color=("#25a34a", "#25a34a"))
+                    ubtn.pack(side="right")
+
+                    def _upd(u=u, b=ubtn):
+                        b.configure(state="disabled", text="...")
+
+                        def work():
+                            try:
+                                core.update_single_mod(
+                                    str(mods_dir), u["project"],
+                                    inst["mc_version"],
+                                    inst.get("loader_id", "vanilla"))
+                                self._mod_updates.pop(inst["id"], None)
+                                self.ui_call(lambda: (
+                                    self._check_inst_mod_updates(inst),
+                                    render_installed()))
+                            except Exception as e:
+                                self.ui_call(lambda: (
+                                    b.configure(state="normal",
+                                                text="Update"),
+                                    inst_status.configure(
+                                        text=f"Update failed: {e}")))
+                        threading.Thread(target=work, daemon=True).start()
+                    ubtn.configure(command=_upd)
+                ctk.CTkLabel(ucard, text="", font=FONT_SMALL).pack(pady=2)
             mods = core.list_mods(str(mods_dir))
             if not mods:
                 ctk.CTkLabel(installed_list, text="No mods yet - install some from Browse Modrinth",
@@ -1991,7 +2306,30 @@ class LauncherApp(ctk.CTk):
             seg.set("Mods")
             on_tab("Mods")
 
-    def _instance_play(self, inst):
+    def _join_friend(self, name, pr):
+        """Launch a matching instance with a one-time server auto-join."""
+        server = (pr.get("server") or "").strip()
+        if not server:
+            return
+        host, sep, p_s = server.partition(":")
+        port = p_s if sep else "25565"
+        mc = (pr.get("mc_version") or "").strip()
+        by_recent = sorted(self.instances,
+                           key=lambda i: -i.get("last_played", 0))
+        inst = next((i for i in self.instances
+                     if i.get("mc_version") == mc), None) or \
+            next((i for i in by_recent
+                  if i.get("loader_id") == "vanilla"), None) or \
+            next(iter(by_recent), None)
+        if inst is None:
+            self._open_instance_editor(prefill={
+                "name": f"{name} on {host}", "loader_id": "vanilla",
+                "mc_version": mc, "loader_version": "",
+                "server": host, "server_port": port})
+            return
+        self._instance_play(inst, join={"server": host, "port": port})
+
+    def _instance_play(self, inst, join=None):
         account = self._selected_account()
         if not account:
             messagebox.showinfo("No account", "Add a Microsoft account first (Accounts tab).")
@@ -2017,7 +2355,7 @@ class LauncherApp(ctk.CTk):
             args=(account, inst["loader_id"], inst["mc_version"],
                   inst.get("loader_version") or None, version_id,
                   inst.get("ram_mb", ""), inst["id"],
-                  inst.get("separate_game_dir", True), inst),
+                  inst.get("separate_game_dir", True), inst, join),
             daemon=True,
         ).start()
 
@@ -2107,6 +2445,36 @@ class LauncherApp(ctk.CTk):
         ctk.CTkEntry(dlg, textvariable=port_var, font=FONT,
                      placeholder_text="25565").grid(row=8, column=1, sticky="w",
                                                     padx=(0, 20), pady=6)
+
+        ctk.CTkLabel(dlg, text="Icon", font=FONT).grid(
+            row=9, column=0, sticky="w", padx=20, pady=6)
+        icon_var = tk.StringVar(value=str(data.get("icon") or ""))
+        icon_row = ctk.CTkFrame(dlg, fg_color="transparent")
+        icon_row.grid(row=9, column=1, sticky="w", padx=(0, 20), pady=6)
+        icon_entry = ctk.CTkEntry(icon_row, textvariable=icon_var,
+                                  width=70, font=FONT,
+                                  placeholder_text="emoji")
+        icon_entry.pack(side="left")
+
+        def pick_icon():
+            path = filedialog.askopenfilename(
+                parent=dlg, title="Pick an icon image",
+                filetypes=[("Images", "*.png *.jpg *.jpeg *.webp *.gif")])
+            if not path:
+                return
+            if not data.get("id"):
+                data["id"] = uuid.uuid4().hex
+            try:
+                icon_var.set(self._save_instance_icon(data["id"], path))
+                icon_status.configure(text="image set")
+            except Exception as e:
+                icon_status.configure(text=f"failed: {e}")
+        ctk.CTkButton(icon_row, text="Choose image", width=100, height=26,
+                      font=FONT_SMALL, fg_color=PALETTE["muted"],
+                      command=pick_icon).pack(side="left", padx=8)
+        icon_status = ctk.CTkLabel(icon_row, text="", font=FONT_SMALL,
+                                   text_color=("gray35", "gray60"))
+        icon_status.pack(side="left")
 
         def selected_loader_id():
             label = loader_menu.get()
@@ -2260,6 +2628,8 @@ class LauncherApp(ctk.CTk):
                 "client_mod": data.get("client_mod", True),
                 "server": server_var.get().strip(),
                 "server_port": port_var.get().strip(),
+                "icon": icon_var.get().strip(),
+                "pinned": bool(data.get("pinned")),
                 "created": data.get("created") or int(time.time()),
                 "last_played": data.get("last_played", 0),
                 "playtime_secs": data.get("playtime_secs", 0),
@@ -2677,7 +3047,23 @@ class LauncherApp(ctk.CTk):
         for name in names:
             r = ctk.CTkFrame(card, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
+            pr = (getattr(self, "_friends_presence", {}) or {}).get(
+                name) or {}
+            pstate = pr.get("state") or "offline"
+            dot = {"game": "#25a34a", "launcher": "#4a9eff"}.get(
+                pstate, "#5c616b")
+            ctk.CTkLabel(r, text="●", font=FONT_SMALL,
+                         text_color=(dot, dot)).pack(side="left",
+                                                    padx=(0, 6))
             ctk.CTkLabel(r, text=name, font=FONT).pack(side="left")
+            status_txt = {
+                "game": f"Playing {pr.get('instance') or 'Minecraft'}"
+                        + (f" on {pr['server']}" if pr.get("server") else ""),
+                "launcher": "In launcher"}.get(pstate, "")
+            if status_txt:
+                ctk.CTkLabel(r, text=status_txt, font=FONT_SMALL,
+                             text_color=("gray35", "gray60")
+                             ).pack(side="left", padx=8)
             if name in self._unread:
                 ctk.CTkLabel(r, text="●", font=FONT,
                              text_color="#e05252"
@@ -2691,12 +3077,25 @@ class LauncherApp(ctk.CTk):
                 r, text="Chat", width=70, font=FONT_SMALL,
                 command=lambda n=name: self._open_chat(token, n)
                 ).pack(side="right", padx=(0, 6))
+            if pstate == "game" and pr.get("server"):
+                ctk.CTkButton(
+                    r, text="Join", width=60, font=FONT_SMALL,
+                    fg_color=("#1a7f37", "#1a7f37"),
+                    hover_color=("#25a34a", "#25a34a"),
+                    command=lambda n=name, p=pr: self._join_friend(n, p)
+                    ).pack(side="right", padx=(0, 6))
             self._row_hoverable(
                 r, action=lambda n=name: self._open_chat(token, n))
-            self._bind_ctx(r, lambda n=name, tok=token: [
-                ("Chat", lambda: self._open_chat(tok, n)),
-                None,
-                ("Remove", lambda: self._friend_remove(tok, n))])
+            def _friend_menu(n=name, tok=token, p=pr):
+                items = []
+                if p.get("server"):
+                    items.append((f"Join {p['server']}",
+                                  lambda: self._join_friend(n, p)))
+                items.append(("Chat", lambda: self._open_chat(tok, n)))
+                items += [None, ("Remove",
+                                 lambda: self._friend_remove(tok, n))]
+                return items
+            self._bind_ctx(r, _friend_menu)
 
     def _friend_add(self, token, name):
         def work():
@@ -3537,12 +3936,31 @@ class LauncherApp(ctk.CTk):
         ).start()
 
     def _launch_worker(self, account, loader_id, mc_version, loader_version,
-                       version_id, ram_mb, instance_id, separate_dir, inst=None):
+                       version_id, ram_mb, instance_id, separate_dir,
+                       inst=None, join=None):
         try:
             profile = auth.get_launch_profile(account)
             self.ui_call(self._account_profile_updated, profile)
 
             java = self.settings.get("java_path") or core.find_java()
+            settings = self.settings
+            need_java = core.required_java_major(mc_version)
+            have_java = core.java_major_version(java)
+            if have_java is None or have_java < need_java:
+                self.ui_call(self._set_status,
+                             f"Java {need_java} needed - downloading...")
+                jpath = core.download_java(
+                    need_java, config.CONFIG_DIR / "java",
+                    progress=lambda p: self.ui_call(
+                        self._set_status,
+                        f"Downloading Java {need_java}... {p}%"))
+                if jpath:
+                    java = jpath
+                    settings = dict(self.settings)
+                    settings["java_path"] = jpath
+                else:
+                    self.ui_call(self._set_status,
+                                 "Java download failed - trying anyway...")
             callback = {
                 "setStatus": lambda s: self.ui_call(self._set_status, s),
                 "setProgress": lambda p: self.ui_call(self._set_progress, p, getattr(self, "_cb_max", 0)),
@@ -3594,13 +4012,23 @@ class LauncherApp(ctk.CTk):
                         core.ensure_shared_link(run_dir, name,
                                                 str(config.SHARED_DIR))
             proc = core.launch_minecraft(
-                version_id, profile, self.settings, ram_mb,
+                version_id, profile, settings, ram_mb,
                 log_path=log_path, game_dir_override=run_dir,
-                server=(inst or {}).get("server", ""),
-                port=(inst or {}).get("server_port", ""),
+                server=(join or {}).get("server")
+                or (inst or {}).get("server", ""),
+                port=(join or {}).get("port")
+                or (inst or {}).get("server_port", ""),
                 client_mod_jar=cmod_jar)
             self.ui_call(self._set_status, f"{version_id} is running")
-            self._running[instance_id or "__quick__"] = proc
+            iid = instance_id or "__quick__"
+            self._running[iid] = proc
+            live_srv = (join or {}).get("server") \
+                or (inst or {}).get("server") or ""
+            if live_srv:
+                p = (join or {}).get("port") \
+                    or (inst or {}).get("server_port") or "25565"
+                self._running_servers[iid] = (
+                    f"{live_srv}:{p}" if str(p) != "25565" else live_srv)
             self.ui_call(self._render_instances)
             threading.Thread(target=self._watch_game,
                              args=(proc, inst, time.time(), log_path),
@@ -3738,7 +4166,9 @@ class LauncherApp(ctk.CTk):
         if inst_id:
             self._hung.discard(inst_id)
             self._live_heap.pop(inst_id, None)
-        self._running.pop(inst["id"] if inst else "__quick__", None)
+        iid_g = inst["id"] if inst else "__quick__"
+        self._running.pop(iid_g, None)
+        self._running_servers.pop(iid_g, None)
         self.ui_call(self._game_exited, proc.wait(), inst, log_file)
 
     def _game_exited(self, code, inst=None, log_path=None):
@@ -3747,6 +4177,7 @@ class LauncherApp(ctk.CTk):
             stopped = inst["id"] in self._stopping
             self._stopping.discard(inst["id"])
             self._running.pop(inst["id"], None)
+            self._running_servers.pop(inst["id"], None)
             self._render_instances()
         if code == 0 or stopped:
             self._set_status("Minecraft closed" if code == 0 else "Stopped")
@@ -4218,6 +4649,8 @@ class LauncherApp(ctk.CTk):
             ("Stop" if running else "Play",
              (lambda: self._instance_stop(inst["id"])) if running
              else (lambda: self._instance_play(inst))),
+            ("Unpin" if inst.get("pinned") else "Pin to top",
+             lambda: self._instance_toggle_pin(inst)),
             ("Edit", lambda: self._open_instance_editor(inst)),
             ("Mods", lambda: self._open_mod_browser(inst)),
             ("Worlds", lambda: self._open_worlds_dialog(inst)),
@@ -4229,6 +4662,13 @@ class LauncherApp(ctk.CTk):
             None,
             ("Delete", lambda: self._instance_delete(inst["id"])),
         ]
+
+    def _instance_toggle_pin(self, inst):
+        for i in self.instances:
+            if i.get("id") == inst["id"]:
+                i["pinned"] = not i.get("pinned")
+        config.save_instances(self.instances)
+        self._render_instances()
 
     # ------------------------------------------------- command palette
 
@@ -4296,7 +4736,8 @@ class LauncherApp(ctk.CTk):
 
     def _palette_items(self):
         items = []
-        for n, lab in (("profile", "Profile"), ("home", "Play"),
+        for n, lab in (("dashboard", "Dashboard"), ("profile", "Profile"),
+                       ("home", "Play"),
                        ("instances", "Instances"), ("servers", "Servers"),
                        ("accounts", "Accounts"), ("friends", "Friends"),
                        ("settings", "Settings"), ("mod", "Client Mod")):
@@ -4452,6 +4893,20 @@ class LauncherApp(ctk.CTk):
             self._unread.discard(friend)
             self._refresh_friends_badge()
 
+    def _presence_payload(self):
+        """What the relay tells friends about us right now."""
+        if self._running:
+            iid = next(iter(self._running))
+            inst = next((i for i in self.instances
+                         if i.get("id") == iid), {})
+            server = (getattr(self, "_running_servers", {}).get(iid)
+                      or inst.get("server")
+                      or self.settings.get("auto_join_server", ""))
+            return {"state": "game", "server": server,
+                    "instance": inst.get("name", ""),
+                    "mc_version": inst.get("mc_version", "")}
+        return {"state": "launcher"}
+
     def _msg_poll(self):
         """Global inbox watch: new friend requests + unread messages,
         independent of which page is open. Every 15s."""
@@ -4465,9 +4920,14 @@ class LauncherApp(ctk.CTk):
             return
         token, myname = user["token"], user["name"]
         last_read = dict(self._last_read)
+        presence = self._presence_payload()
 
         def work():
             from . import chat
+            try:
+                chat.set_presence(token, **presence)
+            except Exception:
+                pass
             try:
                 data = chat.friends(token)
             except Exception:
@@ -4477,6 +4937,7 @@ class LauncherApp(ctk.CTk):
                     and latest != self._update_dismissed:
                 self.ui_call(self._show_update_banner, latest)
             incoming = data.get("incoming") or []
+            pres = data.get("presence") or {}
             unread, new_read = [], {}
             for f in data.get("friends") or []:
                 try:
@@ -4494,10 +4955,12 @@ class LauncherApp(ctk.CTk):
                     unread.append(f)
                     if f in self._chat_open:
                         new_read[f] = mx
-            self.ui_call(self._msg_state, incoming, unread, new_read)
+            self.ui_call(self._msg_state, incoming, unread, new_read, pres)
         threading.Thread(target=work, daemon=True).start()
 
-    def _msg_state(self, incoming, unread, new_read):
+    def _msg_state(self, incoming, unread, new_read, presence=None):
+        if presence is not None:
+            self._friends_presence = presence
         added = {f for f in unread if f not in self._unread
                  and f not in self._chat_open}
         had_req = self._new_requests

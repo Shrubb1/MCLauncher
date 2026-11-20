@@ -69,6 +69,12 @@ def friends(token):
     return _post("/friends", {"token": token})
 
 
+def set_presence(token, state, server="", instance="", mc_version=""):
+    return _post("/presence", {
+        "token": token, "state": state, "server": server,
+        "instance": instance, "mc_version": mc_version})
+
+
 def friend_add(token, name):
     return _post("/friends/add", {"token": token, "friend": name})
 

@@ -104,6 +104,9 @@ def _init(db):
             keyhash TEXT PRIMARY KEY, used_by TEXT, used_at INT);
         CREATE TABLE IF NOT EXISTS cfg(
             key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE IF NOT EXISTS presence(
+            name TEXT PRIMARY KEY, state TEXT, server TEXT,
+            instance TEXT, mc TEXT, ts INT);
     """)
     # migrate: older DBs lack these columns on users
     for col, typ in (("code", "TEXT"), ("bound_mc", "TEXT DEFAULT ''"),
@@ -319,6 +322,21 @@ def handle(db, method, path, body):
         db.commit()
         return {"ok": True}
 
+    if path == "/presence":
+        state = str(body.get("state") or "offline")[:16]
+        now = int(time.time())
+        db.execute(
+            "INSERT INTO presence(name,state,server,instance,mc,ts) "
+            "VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+            "state=excluded.state, server=excluded.server, "
+            "instance=excluded.instance, mc=excluded.mc, ts=excluded.ts",
+            (me, state, str(body.get("server") or "")[:120],
+             str(body.get("instance") or "")[:80],
+             str(body.get("mc_version") or "")[:32], now))
+        db.execute("DELETE FROM presence WHERE ts<?", (now - 600,))
+        db.commit()
+        return {"ok": True}
+
     if path == "/friends":
         rows = db.execute(
             "SELECT friend, status FROM friends WHERE user=? COLLATE NOCASE",
@@ -337,9 +355,19 @@ def handle(db, method, path, body):
         for r in rows:
             if _friend_state(db, me, r["user"]) == "incoming":
                 inc.append(r["user"])
+        pres = {}
+        cutoff = int(time.time()) - 90
+        for r in db.execute(
+                "SELECT * FROM presence WHERE ts>=?", (cutoff,)).fetchall():
+            if r["name"] in acc and r["state"] != "offline":
+                pres[r["name"]] = {
+                    "state": r["state"], "server": r["server"] or "",
+                    "instance": r["instance"] or "",
+                    "mc_version": r["mc"] or ""}
         return {"friends": sorted(acc, key=str.lower),
                 "outgoing": sorted(out, key=str.lower),
                 "incoming": sorted(inc, key=str.lower),
+                "presence": pres,
                 "latest": _latest_version()}
 
     if path == "/friends/add":

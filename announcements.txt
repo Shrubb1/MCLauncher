@@ -1,0 +1,9 @@
+2026-11-20 | v1.2.31 - Dashboard
+The launcher now has a Dashboard: jump back into your last instance,
+see which friends are online or in-game, and join their server in
+one click. Instance icons and pinning landed too.
+---
+2026-11-20 | Friend presence + join
+Friends now show a green dot when they're in game (or blue when the
+launcher is open). If they're on a server you get a Join button -
+it launches a matching instance and auto-joins their IP once.

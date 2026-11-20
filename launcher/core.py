@@ -310,6 +310,39 @@ def server_from_log(log_text: str) -> tuple:
 # ----------------------------------------------------------------- Modrinth
 
 MODRINTH_API = "https://api.modrinth.com/v2"
+_ANN_URL = ("https://api.github.com/repos/Shrubb1/MCLauncher/"
+            "contents/announcements.txt?ref=master")
+_ANN_CACHE = {"ts": 0.0, "items": []}
+
+
+def fetch_announcements(timeout=8) -> list:
+    """Release notes/news cards from the repo, cached 5 min.
+
+    File format: blocks separated by '---' lines; each block's first
+    line is 'date | title', the rest is body text.
+    """
+    if time.time() - _ANN_CACHE["ts"] < 300 and _ANN_CACHE["items"]:
+        return _ANN_CACHE["items"]
+    try:
+        resp = requests.get(
+            _ANN_URL, timeout=timeout,
+            headers={"Accept": "application/vnd.github.raw",
+                     "User-Agent": "mclauncher"})
+        resp.raise_for_status()
+        raw = resp.text
+    except Exception:
+        return _ANN_CACHE["items"]
+    items = []
+    for block in raw.split("\n---"):
+        block = block.strip().strip("-").strip()
+        if not block:
+            continue
+        head, _, body = block.partition("\n")
+        date, _, title = head.partition("|")
+        items.append({"date": date.strip(), "title": title.strip(),
+                      "body": body.strip()})
+    _ANN_CACHE.update({"ts": time.time(), "items": items})
+    return items
 _MODRINTH_HEADERS = {"User-Agent": f"{APP_NAME}/{APP_VERSION} (MCLauncher)"}
 
 
@@ -447,6 +480,53 @@ def update_all_mods(mods_dir: str, mc_version: str, loader_id: str,
         except Exception as e:
             result["failed"].append((project_id, str(e)))
     return result
+
+
+def check_mod_updates(mods_dir: str, mc_version: str,
+                      loader_id: str) -> list:
+    """List Modrinth-tracked mods with a newer file available (no download).
+
+    Returns [{"project", "current", "latest"}] for each outdated mod."""
+    out = []
+    for project_id, entry in list(_read_mod_map(mods_dir).items()):
+        filename = _map_filename(entry)
+        try:
+            version = modrinth_project_version(
+                project_id, mc_version, loader_id)
+            files = version.get("files", [])
+            latest = next((f for f in files if f.get("primary")),
+                          files[0])
+            if latest["filename"] != filename and \
+                    latest["filename"] + ".disabled" != filename:
+                out.append({"project": project_id, "current": filename,
+                            "latest": latest["filename"],
+                            "version_id": version.get("id", "")})
+        except Exception:
+            continue
+    return out
+
+
+def update_single_mod(mods_dir: str, project_id: str, mc_version: str,
+                      loader_id: str) -> str:
+    """Update one tracked mod. Returns the new filename."""
+    entry = _read_mod_map(mods_dir).get(project_id)
+    filename = _map_filename(entry or "")
+    version = modrinth_project_version(project_id, mc_version, loader_id)
+    files = version.get("files", [])
+    latest = next((f for f in files if f.get("primary")), files[0])
+    dest = download_mod_file(latest, mods_dir)
+    if filename.endswith(".disabled"):
+        os.replace(dest, dest + ".disabled")
+        _record_mod_project(mods_dir, project_id,
+                            os.path.basename(dest) + ".disabled",
+                            version.get("id", ""))
+    else:
+        _record_mod_project(mods_dir, project_id, latest["filename"],
+                            version.get("id", ""))
+    old = os.path.join(mods_dir, filename)
+    if filename and os.path.isfile(old):
+        os.remove(old)
+    return latest["filename"]
 
 
 def _mod_map_path(mods_dir: str) -> str:
@@ -854,6 +934,65 @@ def ensure_shared_link(inst_dir: str, name: str, shared_root: str) -> bool:
 
 
 # ---------------------------------------------------------- JVM monitor
+
+def required_java_major(mc_version: str) -> int:
+    """Java major an MC version needs: 1.20.5+ -> 21, 1.18-1.20.4 -> 17,
+    1.17.x -> 16, older -> 8. New 26.x scheme -> newest LTS."""
+    parts = re.findall(r"\d+", mc_version)
+    if len(parts) >= 2:
+        major, minor = int(parts[0]), int(parts[1])
+        if major >= 26:
+            return 25
+        if major >= 21:
+            return major
+        if major == 1:
+            if minor >= 21:
+                return 21
+            if minor == 20:
+                patch = int(parts[2]) if len(parts) >= 3 else 0
+                return 21 if patch >= 5 else 17
+            if minor == 18 or minor == 19:
+                return 17
+            if minor == 17:
+                return 16
+            return 8
+    return 17
+
+
+def download_java(major: int, dest_root, progress=None) -> str | None:
+    """Fetch Temurin JRE <major> (windows x64) into dest_root and return
+    the javaw.exe path inside it. None on failure."""
+    import zipfile
+    url = ("https://api.adoptium.net/v3/binary/latest/"
+           f"{major}/ga/windows/x64/jre/hotspot/normal/eclipse")
+    dest_root = Path(dest_root)
+    dest_root.mkdir(parents=True, exist_ok=True)
+    # already downloaded?
+    for jw in dest_root.rglob("javaw.exe"):
+        return str(jw)
+    tmp = dest_root / f"_jre{major}.zip"
+    try:
+        with requests.get(url, stream=True, timeout=30,
+                          headers={"User-Agent": "mclauncher"}) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            with open(tmp, "wb") as f:
+                for chunk in resp.iter_content(1 << 20):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress and total:
+                        progress(int(done * 100 / total))
+        with zipfile.ZipFile(tmp) as z:
+            z.extractall(dest_root / f"temurin-{major}")
+        tmp.unlink(missing_ok=True)
+        for jw in dest_root.rglob("javaw.exe"):
+            return str(jw)
+        return None
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        return None
+
 
 def java_major_version(java_path: str) -> int | None:
     """Parse 'java -version' output into a major version (25, 21, 17, 8...)."""
