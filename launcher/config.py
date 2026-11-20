@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.8"
+APP_VERSION = "1.2.9"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
 
@@ -72,6 +72,7 @@ DEFAULT_SETTINGS = {
     "checkout_url": "",
     "window_geometry": "",
     "window_state": "normal",
+    "read_msgs": {},
 }
 
 

@@ -118,6 +118,11 @@ class LauncherApp(ctk.CTk):
         self._hung = set()      # instance_ids with stalled log output
         self._live_heap = {}    # instance_id -> last jstat sample dict
         self._session_advice = {}  # instance_id -> RAM suggestion text
+        self._nav_dots = {}     # nav name -> red-dot badge widget
+        self._unread = set()    # friends with unread messages
+        self._new_requests = False
+        self._chat_open = set()  # friends with an open chat window
+        self._last_read = dict(self.settings.get("read_msgs") or {})
 
         self._ui_queue = queue.Queue()
         self.after(50, self._poll_ui_queue)
@@ -140,6 +145,7 @@ class LauncherApp(ctk.CTk):
         self._update_dismissed = None
         self._pending_update = None
         self.after(2000, self._update_check)
+        self.after(4000, self._msg_poll)
         threading.Thread(target=self._load_versions, daemon=True).start()
 
     # ------------------------------------------------------------- helpers
@@ -2289,6 +2295,10 @@ class LauncherApp(ctk.CTk):
             r = ctk.CTkFrame(card, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
             ctk.CTkLabel(r, text=name, font=FONT).pack(side="left")
+            if name in self._unread:
+                ctk.CTkLabel(r, text="", width=10, height=10,
+                             corner_radius=5, fg_color="#e05252"
+                             ).pack(side="left", padx=(8, 0))
             ctk.CTkButton(
                 r, text="Remove", width=70, font=FONT_SMALL,
                 fg_color=("#a33", "#a33"), hover_color=("#c44", "#c44"),
@@ -2356,6 +2366,10 @@ class LauncherApp(ctk.CTk):
 
     def _open_chat(self, token, friend):
         from . import chat
+        self._chat_open.add(friend)
+        if friend in self._unread:
+            self._unread.discard(friend)
+            self._refresh_friends_badge()
         dlg = ctk.CTkToplevel(self)
         dlg.title(f"Chat - {friend}")
         dlg.geometry("460x520")
@@ -2379,6 +2393,7 @@ class LauncherApp(ctk.CTk):
             if m["id"] in state["seen"]:
                 return
             state["seen"].add(m["id"])
+            self._mark_read(friend, m["id"])
             mine = m["sender"].lower() == friend.lower()
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x", padx=6, pady=2)
@@ -2428,7 +2443,9 @@ class LauncherApp(ctk.CTk):
 
         entry.bind("<Return>", lambda e: send_msg())
         dlg.protocol("WM_DELETE_WINDOW",
-                     lambda: (state.update(open=False), dlg.destroy()))
+                     lambda: (state.update(open=False),
+                              self._chat_open.discard(friend),
+                              dlg.destroy()))
         poll()
 
     # ------------------------------------------------------------ Client mod
@@ -3673,6 +3690,7 @@ class LauncherApp(ctk.CTk):
         self.upd_lbl.configure(text=f"Update available - v{remote}")
         self.update_banner.grid(row=0, column=0, sticky="ew",
                                 padx=8, pady=(8, 0))
+        self._set_nav_badge("settings", True)
 
     def _dismiss_update(self):
         self._update_dismissed = self._pending_update
@@ -3703,6 +3721,96 @@ class LauncherApp(ctk.CTk):
         self.upd_btn.configure(state="normal", text="Update & restart")
         self.upd_lbl.configure(
             text="Update failed - try Settings > Check for updates")
+
+    # ------------------------------------------------- nav badges + inbox
+
+    def _set_nav_badge(self, name, on):
+        """Discord-style red dot on a nav button."""
+        btn = self.nav_buttons.get(name)
+        if not btn:
+            return
+        dot = self._nav_dots.get(name)
+        if on and dot is None:
+            dot = ctk.CTkLabel(btn, text="", width=12, height=12,
+                               corner_radius=6, fg_color="#e05252")
+            dot.place(relx=1.0, x=-16, rely=0.5, anchor="e")
+            self._nav_dots[name] = dot
+        elif not on and dot is not None:
+            dot.place_forget()
+            self._nav_dots.pop(name, None)
+
+    def _refresh_friends_badge(self):
+        self._set_nav_badge("friends",
+                            bool(self._unread) or self._new_requests)
+
+    def _mark_read(self, friend, mid):
+        if mid > self._last_read.get(friend, 0):
+            self._last_read[friend] = mid
+            self.settings["read_msgs"] = self._last_read
+            config.save_settings(self.settings)
+        if friend in self._unread:
+            self._unread.discard(friend)
+            self._refresh_friends_badge()
+
+    def _msg_poll(self):
+        """Global inbox watch: new friend requests + unread messages,
+        independent of which page is open. Every 15s."""
+        self.after(15000, self._msg_poll)
+        user = users.current_user()
+        if not user or not user.get("token"):
+            if self._unread or self._new_requests:
+                self._unread.clear()
+                self._new_requests = False
+                self._refresh_friends_badge()
+            return
+        token, myname = user["token"], user["name"]
+        last_read = dict(self._last_read)
+
+        def work():
+            from . import chat
+            try:
+                data = chat.friends(token)
+            except Exception:
+                return
+            incoming = data.get("incoming") or []
+            unread, new_read = [], {}
+            for f in data.get("friends") or []:
+                try:
+                    r = chat.fetch(token, f, last_read.get(f, 0))
+                except Exception:
+                    continue
+                msgs = r.get("messages") or []
+                if not msgs:
+                    continue
+                mx = max(m["id"] for m in msgs)
+                if f not in last_read:
+                    new_read[f] = mx  # first sight = baseline, not unread
+                elif any(m["sender"].lower() != myname.lower()
+                         for m in msgs):
+                    unread.append(f)
+                    if f in self._chat_open:
+                        new_read[f] = mx
+            self.ui_call(self._msg_state, incoming, unread, new_read)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _msg_state(self, incoming, unread, new_read):
+        self._new_requests = bool(incoming)
+        changed = False
+        for f, mid in new_read.items():
+            if mid > self._last_read.get(f, 0):
+                self._last_read[f] = mid
+                changed = True
+        if changed:
+            self.settings["read_msgs"] = self._last_read
+            config.save_settings(self.settings)
+        grew = False
+        for f in unread:
+            if f not in self._chat_open and f not in self._unread:
+                self._unread.add(f)
+                grew = True
+        self._refresh_friends_badge()
+        if grew and getattr(self, "_active_page", "") == "friends":
+            self._render_friends()
 
     def _on_configure(self, event):
         if event.widget is not self:
