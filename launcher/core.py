@@ -397,30 +397,46 @@ def server_from_log(log_text: str) -> tuple:
 # ----------------------------------------------------------------- Modrinth
 
 MODRINTH_API = "https://api.modrinth.com/v2"
-_ANN_URL = ("https://api.github.com/repos/Shrubb1/MCLauncher/"
-            "contents/announcements.txt?ref=master")
+_GH_REPO = "https://api.github.com/repos/Shrubb1/MCLauncher"
+_ANN_URL = _GH_REPO + "/contents/announcements.txt?ref=master"
 _ANN_CACHE = {"ts": 0.0, "items": []}
 
 
-def fetch_announcements(timeout=8) -> list:
-    """Release notes/news cards from the repo, cached 5 min.
-
-    File format: blocks separated by '---' lines; each block's first
-    line is 'date | title', the rest is body text.
-    """
-    if time.time() - _ANN_CACHE["ts"] < 300 and _ANN_CACHE["items"]:
-        return _ANN_CACHE["items"]
-    try:
-        resp = requests.get(
-            _ANN_URL, timeout=timeout,
-            headers={"Accept": "application/vnd.github.raw",
-                     "User-Agent": "mclauncher"})
-        resp.raise_for_status()
-        raw = resp.text
-    except Exception:
-        return _ANN_CACHE["items"]
+def _ann_from_tags(timeout) -> list:
+    """The newest 3 releases as announcements: tag = version pill,
+    commit message = title/body. Auto-updates on every tagged push."""
+    tags = requests.get(f"{_GH_REPO}/tags?per_page=30",
+                        headers={"User-Agent": "mclauncher"},
+                        timeout=timeout).json()
+    by_sha = {t["commit"]["sha"]: t["name"].lstrip("v") for t in tags}
+    commits = requests.get(f"{_GH_REPO}/commits?per_page=25&sha=master",
+                           headers={"User-Agent": "mclauncher"},
+                           timeout=timeout).json()
     items = []
-    for block in raw.split("\n---"):
+    for c in commits:
+        ver = by_sha.get(c["sha"])
+        if not ver:
+            continue
+        lines = (c["commit"]["message"] or "").splitlines()
+        items.append({
+            "version": ver,
+            "title": (lines[0] if lines else "Update").strip(),
+            "body": "\n".join(l for l in lines[1:] if l.strip()).strip(),
+            "date": (c["commit"]["committer"]["date"] or "")[:10]})
+        if len(items) >= 3:
+            break
+    return items
+
+
+def _ann_from_file(timeout) -> list:
+    """announcements.txt fallback ('date | title' head blocks)."""
+    resp = requests.get(
+        _ANN_URL, timeout=timeout,
+        headers={"Accept": "application/vnd.github.raw",
+                 "User-Agent": "mclauncher"})
+    resp.raise_for_status()
+    items = []
+    for block in resp.text.split("\n---"):
         block = block.strip().strip("-").strip()
         if not block:
             continue
@@ -428,6 +444,23 @@ def fetch_announcements(timeout=8) -> list:
         date, _, title = head.partition("|")
         items.append({"date": date.strip(), "title": title.strip(),
                       "body": body.strip()})
+    return items
+
+
+def fetch_announcements(timeout=8) -> list:
+    """Newest release notes, cached 5 min."""
+    if time.time() - _ANN_CACHE["ts"] < 300 and _ANN_CACHE["items"]:
+        return _ANN_CACHE["items"]
+    items = []
+    try:
+        items = _ann_from_tags(timeout)
+    except Exception:
+        pass
+    if not items:
+        try:
+            items = _ann_from_file(timeout)
+        except Exception:
+            return _ANN_CACHE["items"]
     _ANN_CACHE.update({"ts": time.time(), "items": items})
     return items
 _MODRINTH_HEADERS = {"User-Agent": f"{APP_NAME}/{APP_VERSION} (MCLauncher)"}

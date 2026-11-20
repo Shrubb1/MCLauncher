@@ -645,6 +645,21 @@ class LauncherApp(ctk.CTk):
         FONT_H1 = ctk.CTkFont(family="Segoe UI", size=17, weight="bold")
         FONT_STAT = ctk.CTkFont(family="Segoe UI", size=15, weight="bold")
 
+        # ---- greeting header ----
+        user = users.current_user()
+        hr = int(time.strftime("%H"))
+        greet = ("evening" if hr >= 18 or hr < 5
+                 else "afternoon" if hr >= 12 else "morning")
+        who = user["name"] if user else "there"
+        head = ctk.CTkFrame(scr, fg_color="transparent")
+        head.pack(fill="x", padx=10, pady=(6, 8))
+        ctk.CTkLabel(head, text=f"Good {greet}, {who}",
+                     font=FONT_H1).pack(side="left")
+        ctk.CTkLabel(head, text=time.strftime("%A, %B %d"),
+                     font=FONT_SMALL,
+                     text_color=("gray35", "gray60")
+                     ).pack(side="right", pady=(6, 0))
+
         cols = ctk.CTkFrame(scr, fg_color="transparent")
         cols.pack(fill="both", expand=True, padx=4, pady=4)
         cols.grid_columnconfigure(0, weight=3)
@@ -686,6 +701,15 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(info, text=meta, font=FONT_SMALL,
                          text_color=("gray35", "gray60")
                          ).pack(anchor="w", pady=(2, 0))
+            chips = ctk.CTkFrame(info, fg_color="transparent")
+            chips.pack(anchor="w", pady=(6, 0))
+            for txt in (hero["mc_version"],
+                        core.LOADER_NAMES.get(hero.get("loader_id"), "")):
+                ch = ctk.CTkFrame(chips, fg_color=PALETTE["muted"],
+                                  corner_radius=7)
+                ch.pack(side="left", padx=(0, 6))
+                ctk.CTkLabel(ch, text=txt, font=FONT_SMALL
+                             ).pack(padx=8, pady=1)
             ctk.CTkButton(
                 h, text="Play", width=104, height=38, font=FONT_BOLD,
                 corner_radius=8,
@@ -717,31 +741,53 @@ class LauncherApp(ctk.CTk):
                          for i in self.instances)
         stats = ctk.CTkFrame(left, fg_color="transparent")
         stats.pack(fill="x", pady=(0, 10))
-        stats.grid_columnconfigure((0, 1, 2), weight=1, uniform="st")
+        stats.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="st")
+        upd_total = sum(len(v) for v in self._mod_updates.values())
 
-        def stat_tile(col, value, label, target):
+        def stat_tile(col, value, label, target, color):
             c = ctk.CTkFrame(stats, fg_color=PALETTE["card"],
                              corner_radius=10)
             c.grid(row=0, column=col, sticky="nsew", padx=3)
-            ctk.CTkLabel(c, text=value, font=FONT_STAT).pack(pady=(10, 0))
-            ctk.CTkLabel(c, text=label, font=FONT_SMALL,
+            ctk.CTkFrame(c, width=3, fg_color=color,
+                         corner_radius=1).pack(side="left", fill="y",
+                                               pady=8, padx=(0, 2))
+            inner = ctk.CTkFrame(c, fg_color="transparent")
+            inner.pack(fill="x")
+            ctk.CTkLabel(inner, text=value, font=FONT_STAT,
+                         text_color=(color, color)).pack(pady=(10, 0))
+            ctk.CTkLabel(inner, text=label, font=FONT_SMALL,
                          text_color=("gray35", "gray60")
                          ).pack(pady=(0, 10))
-            try:
-                c.configure(cursor="hand2")
-                for w_ in c.winfo_children():
+            for w_ in (c,) + tuple(c.winfo_children()):
+                try:
                     w_.configure(cursor="hand2")
                     w_.bind("<Button-1>",
                             lambda e, t=target: self._show_page(t))
-                c.bind("<Button-1>",
-                       lambda e, t=target: self._show_page(t))
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-        stat_tile(0, str(len(self.instances)), "INSTANCES", "instances")
+        stat_tile(0, str(len(self.instances)), "INSTANCES",
+                  "instances", "#4a9eff")
         stat_tile(1, self._fmt_duration(total_secs) if total_secs else "0m",
-                  "TIME PLAYED", "instances")
-        stat_tile(2, str(len(online)), "FRIENDS ONLINE", "friends")
+                  "TIME PLAYED", "instances", "#25a34a")
+        stat_tile(2, str(len(online)), "FRIENDS ONLINE",
+                  "friends", "#b06be8")
+        stat_tile(3, str(upd_total), "MOD UPDATES",
+                  "instances",
+                  "#e05252" if upd_total else "#5c616b")
+
+        # ---- quick actions ----
+        qa = ctk.CTkFrame(left, fg_color="transparent")
+        qa.pack(fill="x", pady=(0, 10), padx=3)
+        for label, cmd in (
+                ("+ New instance", lambda: self._open_instance_editor()),
+                ("Browse servers", lambda: self._show_page("servers")),
+                ("Add friend", lambda: self._show_page("friends"))):
+            ctk.CTkButton(
+                qa, text=label, height=26, font=FONT_SMALL,
+                fg_color=PALETTE["muted"],
+                hover_color=PALETTE["muted_hover"],
+                command=cmd).pack(side="left", padx=(0, 6))
 
         # ---- recently played mini-tiles ----
         others = [i for i in recent if i is not hero][:4]
@@ -878,18 +924,26 @@ class LauncherApp(ctk.CTk):
             return
         for it in items[:5]:
             row = ctk.CTkFrame(card, fg_color="transparent")
-            row.pack(fill="x", padx=14, pady=(0, 8))
+            row.pack(fill="x", padx=14, pady=(0, 10))
             head = ctk.CTkFrame(row, fg_color="transparent")
             head.pack(fill="x")
-            ctk.CTkLabel(head, text=it["title"] or "Update",
-                         font=FONT_BOLD, anchor="w").pack(side="left")
+            if it.get("version"):
+                pill = ctk.CTkFrame(head, fg_color=PALETTE["accent"],
+                                    corner_radius=7)
+                pill.pack(side="left")
+                ctk.CTkLabel(pill, text="v" + it["version"],
+                             font=FONT_SMALL).pack(padx=7, pady=1)
             if it.get("date"):
                 ctk.CTkLabel(head, text=it["date"], font=FONT_SMALL,
                              text_color=("gray35", "gray60")
                              ).pack(side="right")
+            ctk.CTkLabel(row, text=it["title"] or "Update",
+                         font=FONT_BOLD, anchor="w",
+                         wraplength=265, justify="left"
+                         ).pack(fill="x", pady=(2, 0))
             if it.get("body"):
                 ctk.CTkLabel(row, text=it["body"][:180], font=FONT_SMALL,
-                             anchor="w", justify="left", wraplength=300,
+                             anchor="w", justify="left", wraplength=265,
                              text_color=("gray35", "gray60")
                              ).pack(fill="x")
 
