@@ -119,6 +119,7 @@ class LauncherApp(ctk.CTk):
         self._live_heap = {}    # instance_id -> last jstat sample dict
         self._session_advice = {}  # instance_id -> RAM suggestion text
         self._nav_dots = {}     # nav name -> red-dot badge widget
+        self._toasts = []       # stacked in-app toast widgets
         self._unread = set()    # friends with unread messages
         self._new_requests = False
         self._chat_open = set()  # friends with an open chat window
@@ -146,6 +147,7 @@ class LauncherApp(ctk.CTk):
         self._pending_update = None
         self.after(2000, self._update_check)
         self.after(4000, self._msg_poll)
+        self.after(300, self._apply_titlebar_theme)
         threading.Thread(target=self._load_versions, daemon=True).start()
 
     # ------------------------------------------------------------- helpers
@@ -208,10 +210,11 @@ class LauncherApp(ctk.CTk):
         self._nav_ind_y = None
         self._nav_ind_job = None
 
-        # Ctrl+1..8 page shortcuts
+        # Ctrl+1..8 page shortcuts, Ctrl+K command palette
         for i, n in enumerate(self.nav_buttons, 1):
             self.bind_all(f"<Control-Key-{i}>",
                           lambda e, n=n: self._show_page(n))
+        self.bind_all("<Control-k>", self._open_palette)
 
         self.version_label = ctk.CTkLabel(
             sidebar, text=f"v{config.APP_VERSION}", font=FONT_SMALL,
@@ -444,11 +447,15 @@ class LauncherApp(ctk.CTk):
             card = ctk.CTkFrame(self.instances_scroll, fg_color=PALETTE["card"])
             card.pack(fill="x", pady=4, padx=4)
             card.configure(cursor="hand2")
-            self.after_idle(
-                lambda c=card, i=inst: c.winfo_exists() and
+
+            def _card_extras(c=card, i=inst):
+                if not c.winfo_exists():
+                    return
                 self._row_hoverable(
                     c, action=lambda: self._instance_play(i),
-                    event="<Double-Button-1>"))
+                    event="<Double-Button-1>")
+                self._bind_ctx(c, lambda: self._instance_ctx_items(i))
+            self.after_idle(_card_extras)
 
             info = ctk.CTkFrame(card, fg_color="transparent")
             info.pack(side="left", padx=12, pady=10, fill="x", expand=True)
@@ -2393,6 +2400,10 @@ class LauncherApp(ctk.CTk):
                 ).pack(side="right", padx=(0, 6))
             self._row_hoverable(
                 r, action=lambda n=name: self._open_chat(token, n))
+            self._bind_ctx(r, lambda n=name, tok=token: [
+                ("Chat", lambda: self._open_chat(tok, n)),
+                None,
+                ("Remove", lambda: self._friend_remove(tok, n))])
 
     def _friend_add(self, token, name):
         def work():
@@ -3765,6 +3776,11 @@ class LauncherApp(ctk.CTk):
         threading.Thread(target=work, daemon=True).start()
 
     def _show_update_banner(self, remote):
+        if remote != getattr(self, "_toasted_update", None):
+            self._toasted_update = remote
+            self._toast("Update available",
+                        f"v{remote} - click to install",
+                        on_click=self._apply_update)
         self._pending_update = remote
         if getattr(self, "update_banner", None) is None:
             bar = ctk.CTkFrame(self._content, border_width=1,
@@ -3824,6 +3840,221 @@ class LauncherApp(ctk.CTk):
             return
         self.upd_btn.configure(state="normal", text="Update & restart")
         self.upd_lbl.configure(text=msg or "Update failed")
+
+    # ------------------------------------------------- toasts
+
+    def _toast(self, title, body="", on_click=None, ms=5000):
+        """In-app toast, bottom-right, auto-dismiss; optional click action."""
+        t = ctk.CTkFrame(self, fg_color=PALETTE["card"], border_width=1,
+                         border_color=PALETTE["muted_hover"],
+                         corner_radius=8)
+        tl = ctk.CTkLabel(t, text=title, font=FONT_BOLD, anchor="w")
+        tl.pack(fill="x", padx=12, pady=(8, 0) if body else (8, 8))
+        kids = [t, tl]
+        if body:
+            bl = ctk.CTkLabel(t, text=body[:90], font=FONT_SMALL,
+                              anchor="w", justify="left", wraplength=230,
+                              text_color=("gray35", "gray60"))
+            bl.pack(fill="x", padx=12, pady=(0, 8))
+            kids.append(bl)
+
+        def dismiss():
+            if t in self._toasts:
+                self._toasts.remove(t)
+            t.destroy()
+            self._restack_toasts()
+
+        for w in kids:
+            w.bind("<Button-1>",
+                   lambda e: dismiss() if on_click is None
+                   else (dismiss(), on_click()))
+            if on_click:
+                try:
+                    w.configure(cursor="hand2")
+                except Exception:
+                    pass
+        self._toasts.append(t)
+        self._restack_toasts(new=t)
+        self.after(ms, lambda: t.winfo_exists() and dismiss())
+
+    def _restack_toasts(self, new=None):
+        y = -16
+        for t in reversed(self._toasts):
+            t.update_idletasks()
+            h = t.winfo_reqheight() or 60
+            if t is new:
+                steps = 5
+
+                def slide(i, t=t, yy=y):
+                    t.place(relx=1.0,
+                            x=int(-16 + (1 - i / steps) * 260),
+                            rely=1.0, y=yy, anchor="se")
+                    if i < steps:
+                        self.after(12, lambda: slide(i + 1))
+                slide(0)
+            else:
+                t.place(relx=1.0, x=-16, rely=1.0, y=y, anchor="se")
+            y -= h + 10
+
+    # ------------------------------------------------- context menus
+
+    def _ctx_menu(self, event, items):
+        m = tk.Menu(self, tearoff=0, bg=PALETTE["card"],
+                    fg="#e8eaf0" if THEME_NAME == "black" else "#1f2937",
+                    activebackground=PALETTE["accent"],
+                    activeforeground="#ffffff", bd=1, relief="solid")
+        for it in items:
+            if it is None:
+                m.add_separator()
+            else:
+                m.add_command(label=it[0], command=it[1])
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    def _bind_ctx(self, widget, items_fn):
+        widget.bind("<Button-3>",
+                    lambda e: self._ctx_menu(e, items_fn()))
+        for c in widget.winfo_children():
+            self._bind_ctx(c, items_fn)
+
+    def _instance_ctx_items(self, inst):
+        running = inst["id"] in self._running
+        return [
+            ("Stop" if running else "Play",
+             (lambda: self._instance_stop(inst["id"])) if running
+             else (lambda: self._instance_play(inst))),
+            ("Edit", lambda: self._open_instance_editor(inst)),
+            ("Mods", lambda: self._open_mod_browser(inst)),
+            ("Worlds", lambda: self._open_worlds_dialog(inst)),
+            ("Screenshots", lambda: self._open_screenshots(inst)),
+            ("Open folder", lambda: self._instance_open_folder(inst)),
+            ("Duplicate", lambda: self._instance_duplicate(inst)),
+            ("Share code", lambda: self._share_instance(inst)),
+            ("Export server", lambda: self._export_server(inst)),
+            None,
+            ("Delete", lambda: self._instance_delete(inst["id"])),
+        ]
+
+    # ------------------------------------------------- command palette
+
+    def _open_palette(self, event=None):
+        if getattr(self, "_palette", None) is not None:
+            self._palette_close()
+            return "break"
+        panel = ctk.CTkFrame(self._content, fg_color=PALETTE["card"],
+                             border_width=1,
+                             border_color=PALETTE["muted_hover"],
+                             corner_radius=10)
+        panel.place(relx=0.5, rely=0.10, anchor="n")
+        self._palette = panel
+        entry = ctk.CTkEntry(panel, width=440, height=36, font=FONT,
+                             placeholder_text="Type a command...")
+        entry.pack(padx=10, pady=(10, 4))
+        lst = ctk.CTkFrame(panel, fg_color="transparent")
+        lst.pack(fill="x", padx=6, pady=(0, 8))
+        self._palette_state = {"sel": 0, "rows": []}
+
+        def hl():
+            st = self._palette_state
+            for i, (row, _fn) in enumerate(st["rows"]):
+                row.configure(fg_color=PALETTE["muted"]
+                              if i == st["sel"] else "transparent")
+
+        def refresh(*_):
+            for w in lst.winfo_children():
+                w.destroy()
+            q = entry.get().strip().lower()
+            st = self._palette_state
+            st["rows"] = []
+            for label, fn in [i for i in self._palette_items()
+                              if not q or q in i[0].lower()][:8]:
+                row = ctk.CTkFrame(lst, fg_color="transparent",
+                                   corner_radius=6)
+                row.pack(fill="x", pady=1)
+                lb = ctk.CTkLabel(row, text=label, font=FONT, anchor="w")
+                lb.pack(fill="x", padx=10, pady=7)
+                for w in (row, lb):
+                    w.bind("<Button-1>",
+                           lambda e, f=fn: (self._palette_close(), f()))
+                st["rows"].append((row, fn))
+            st["sel"] = 0
+            hl()
+
+        def mv(d):
+            st = self._palette_state
+            if st["rows"]:
+                st["sel"] = max(0, min(len(st["rows"]) - 1,
+                                       st["sel"] + d))
+                hl()
+            return "break"
+
+        entry.bind("<KeyRelease>",
+                   lambda e: refresh() if e.keysym not in
+                   ("Up", "Down", "Return") else None)
+        entry.bind("<Down>", lambda e: mv(1))
+        entry.bind("<Up>", lambda e: mv(-1))
+        entry.bind("<Return>", lambda e: self._palette_run())
+        entry.bind("<Escape>", lambda e: self._palette_close())
+        refresh()
+        entry.focus_set()
+        return "break"
+
+    def _palette_items(self):
+        items = []
+        for n, lab in (("profile", "Profile"), ("home", "Play"),
+                       ("instances", "Instances"), ("servers", "Servers"),
+                       ("accounts", "Accounts"), ("friends", "Friends"),
+                       ("settings", "Settings"), ("mod", "Client Mod")):
+            items.append((f"Go to {lab}",
+                          lambda n=n: self._show_page(n)))
+        for inst in self.instances:
+            nm = inst.get("name", "Instance")
+            items.append((f"Play - {nm}",
+                          lambda i=inst: self._instance_play(i)))
+            items.append((f"Mods - {nm}",
+                          lambda i=inst: self._open_mod_browser(i)))
+        items.append(("Check for updates",
+                      lambda: (self._show_page("settings"),
+                               self._check_update())))
+        items.append(("Open install folder",
+                      lambda: os.startfile(config.INSTALL_DIR)))
+        return items
+
+    def _palette_run(self):
+        st = getattr(self, "_palette_state", None)
+        if not st or not st["rows"]:
+            self._palette_close()
+            return "break"
+        fn = st["rows"][st["sel"]][1]
+        self._palette_close()
+        fn()
+        return "break"
+
+    def _palette_close(self):
+        p = getattr(self, "_palette", None)
+        if p is not None:
+            p.destroy()
+            self._palette = None
+        self._palette_state = {"sel": 0, "rows": []}
+        return "break"
+
+    # ------------------------------------------------- window chrome
+
+    def _apply_titlebar_theme(self):
+        """Dark/light native title bar via DWM (like Discord/Spotify)."""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            hwnd = int(self.wm_frame(), 16)
+            dark = 1 if THEME_NAME == "black" else 0
+            for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(ctypes.c_int(dark)), 4)
+        except Exception:
+            pass
 
     # ------------------------------------------------- nav badges + inbox
 
@@ -3925,6 +4156,9 @@ class LauncherApp(ctk.CTk):
         threading.Thread(target=work, daemon=True).start()
 
     def _msg_state(self, incoming, unread, new_read):
+        added = {f for f in unread if f not in self._unread
+                 and f not in self._chat_open}
+        had_req = self._new_requests
         self._new_requests = bool(incoming)
         changed = False
         for f, mid in new_read.items():
@@ -3944,6 +4178,19 @@ class LauncherApp(ctk.CTk):
         if (shrank or self._unread - set(unread)) \
                 and getattr(self, "_active_page", "") == "friends":
             self._render_friends()
+        if added:
+            u = users.current_user()
+            for f in sorted(added):
+                if u and u.get("token"):
+                    cb = (lambda f=f, tok=u["token"]:
+                          self._open_chat(tok, f))
+                else:
+                    cb = (lambda: self._show_page("friends"))
+                self._toast("New message", f"from {f}", on_click=cb)
+        if incoming and not had_req:
+            self._toast("Friend request",
+                        ", ".join(incoming[:3]) + " wants to connect",
+                        on_click=lambda: self._show_page("friends"))
 
     def _on_configure(self, event):
         if event.widget is not self:
