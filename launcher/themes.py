@@ -123,7 +123,8 @@ def _build_theme(name, accent, hover, button_text, app_bg, frame_bg,
     dm = theme["DropdownMenu"]
     _deep_set(dm, "fg_color", frame_bg)
     _deep_set(dm, "hover_color", scroll)
-    _deep_set(dm, "text_color", "#e8eaf0")
+    # text_color stays as the base ['gray10','gray90'] pair so popup
+    # items stay readable in both the black and white themes
 
     _THEME_OUT.mkdir(parents=True, exist_ok=True)
     out = _THEME_OUT / f"{name}.json"
