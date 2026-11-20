@@ -40,6 +40,21 @@ LEGACY_TYPES = {"old_alpha", "old_beta"}
 MAX_RENDERED_VERSIONS = 200
 FILTER_DEBOUNCE_MS = 250
 
+# sidebar search: which features "live" under each nav page
+NAV_KEYWORDS = {
+    "profile":   "profile license key username sign in activate code admin",
+    "home":      "play launch version minecraft new create start game run instance",
+    "instances": "instance mods mod folder worlds screenshots shots share "
+                 "duplicate server export delete play rename backup edit",
+    "servers":   "server servers join multiplayer ping history connect",
+    "accounts":  "account accounts microsoft login log in add remove username",
+    "friends":   "friend friends chat message messages add remove dm talk",
+    "settings":  "settings config ram memory java theme black white update "
+                 "folder alert alerts options preferences jvm directory about",
+    "mod":       "client mod zoom fullbright sprint sneak hud cps widget "
+                 "mouse scroll mods folder jar download",
+}
+
 JVM_PRESETS = {
     "Standard (recommended)": "",
     "Low memory / older PC": "-XX:+UseG1GC -XX:MaxGCPauseMillis=130 "
@@ -181,7 +196,19 @@ class LauncherApp(ctk.CTk):
 
         _title_box(sidebar, "MCLauncher").pack(pady=(24, 4))
         ctk.CTkLabel(sidebar, text="Minecraft launcher", font=FONT_SMALL,
-                     text_color=("gray35", "gray60")).pack(pady=(0, 20))
+                     text_color=("gray35", "gray60")).pack(pady=(0, 10))
+
+        self._nav_query = ""
+        self._nav_search = ctk.CTkEntry(
+            sidebar, height=26, font=FONT_SMALL,
+            placeholder_text="Search",
+            fg_color=PALETTE["nav"], border_width=0,
+            text_color=("gray15", "gray85"))
+        self._nav_search.pack(fill="x", padx=12, pady=(0, 10))
+        self._nav_search.bind("<KeyRelease>", self._on_nav_search)
+        self._nav_search.bind("<Return>",
+                              lambda e: self._nav_search_go())
+        self._nav_search.bind("<Escape>", lambda e: self._nav_search_clear())
 
         self.nav_buttons = {}
         for name, label in (("profile", "Profile"), ("home", "Play"),
@@ -262,6 +289,7 @@ class LauncherApp(ctk.CTk):
                                                       text_color=("gray20", "gray80"))
         for n in self.nav_buttons:
             self._sync_badge_bg(n)
+        self._apply_nav_filter()
         self._slide_nav_indicator(name)
 
     def _slide_nav_indicator(self, name):
@@ -4055,6 +4083,55 @@ class LauncherApp(ctk.CTk):
                     hwnd, attr, ctypes.byref(ctypes.c_int(dark)), 4)
         except Exception:
             pass
+
+    # ------------------------------------------------- sidebar search
+
+    def _on_nav_search(self, event=None):
+        self._nav_query = self._nav_search.get()
+        self._apply_nav_filter()
+
+    def _nav_search_clear(self):
+        self._nav_search.delete(0, "end")
+        self._nav_query = ""
+        self._apply_nav_filter()
+        self.focus()
+        return "break"
+
+    def _nav_search_go(self):
+        """Enter in the search box: jump to the first matching page."""
+        for name in self.nav_buttons:
+            if self._nav_match(name):
+                self._show_page(name)
+                break
+        return "break"
+
+    def _nav_match(self, name):
+        q = self._nav_query.strip().lower()
+        if not q:
+            return True
+        label = self.nav_buttons[name].cget("text").lower()
+        hay = f"{label} {NAV_KEYWORDS.get(name, '')}"
+        toks = q.split()
+        if all(t in hay for t in toks):
+            return True
+        if name == "instances":
+            for inst in self.instances:
+                h = (f"{inst.get('name', '')} {inst.get('mc_version', '')} "
+                     f"{inst.get('loader_id', '')}").lower()
+                if all(t in h for t in toks):
+                    return True
+        return False
+
+    def _apply_nav_filter(self):
+        q = getattr(self, "_nav_query", "").strip()
+        for name, btn in self.nav_buttons.items():
+            active = name == getattr(self, "_active_page", "")
+            if not q or self._nav_match(name):
+                btn.configure(
+                    text_color=("white", "white") if active
+                    else ("gray20", "gray80"))
+            else:
+                btn.configure(text_color=("#aeb3bd", "#3c414c"))
 
     # ------------------------------------------------- nav badges + inbox
 
