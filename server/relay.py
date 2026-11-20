@@ -42,11 +42,19 @@ def _local_version():
     return vf.read_text().strip() if vf.is_file() else ""
 
 
-def _latest_version():
-    """Newest released version from GitHub, cached 60s.
+def _ver_newer(a: str, b: str) -> str:
+    """Whichever of two version strings is newer (a on tie)."""
+    ka = [int(x) for x in re.findall(r"\d+", a or "")[:3]]
+    kb = [int(x) for x in re.findall(r"\d+", b or "")[:3]]
+    return a if (ka + [0, 0, 0])[:3] >= (kb + [0, 0, 0])[:3] else b
 
-    Falls back to the bundled version.txt so clients still learn about
-    updates even if GitHub is unreachable."""
+
+def _latest_version():
+    """Newest released version, cached 60s.
+
+    The bundled version.txt is authoritative - it matches the zip clients
+    actually download. GitHub is only a fallback for a stale deploy, and
+    its edge cache can lag minutes behind a push anyway."""
     if time.time() - _LATEST["ts"] < 60:
         return _LATEST["ver"]
     ver = ""
@@ -61,7 +69,7 @@ def _latest_version():
                 ver = m.group(1)
     except Exception:
         pass
-    _LATEST["ver"] = ver or _local_version()
+    _LATEST["ver"] = _ver_newer(_local_version(), ver)
     _LATEST["ts"] = time.time()
     return _LATEST["ver"]
 
