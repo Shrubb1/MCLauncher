@@ -1006,6 +1006,7 @@ def probe_server(host: str, port: int = None, timeout: float = 5.0) -> dict:
         "players": {"online": (d.get("players") or {}).get("online", 0),
                     "max": (d.get("players") or {}).get("max", 0)},
         "description": {"text": "\n".join(motd)},
+        "favicon": d.get("icon"),
         "via": "cached status",
     }
 

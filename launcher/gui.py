@@ -601,24 +601,44 @@ class LauncherApp(ctk.CTk):
         top.grid(row=0, column=0, sticky="ew", padx=8, pady=(20, 8))
         _title_box(top, "Servers").pack(side="left")
 
-        probe = ctk.CTkFrame(frame, fg_color="transparent")
-        probe.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
-        probe.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(probe, text="Probe:", font=FONT).grid(row=0, column=0, padx=(0, 8))
+        # ---- ping card ----
+        card = ctk.CTkFrame(frame, fg_color=PALETTE["card"], corner_radius=8)
+        card.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 10))
+        card.grid_columnconfigure(1, weight=1)
+        self._ping_card = card
+        ctk.CTkLabel(card, text="Ping a server", font=FONT_BOLD
+                     ).grid(row=0, column=0, columnspan=3, sticky="w",
+                            padx=12, pady=(12, 0))
+        ctk.CTkLabel(card,
+                     text="Check if a server is online and what it runs",
+                     font=FONT_SMALL, text_color=("gray35", "gray60")
+                     ).grid(row=1, column=0, columnspan=3, sticky="w",
+                            padx=12, pady=(0, 8))
         self.probe_entry = ctk.CTkEntry(
-            probe, font=FONT,
+            card, font=FONT, height=30,
             placeholder_text="server address, e.g. hypixel.net")
-        self.probe_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self.probe_entry.grid(row=2, column=0, columnspan=2, sticky="ew",
+                              padx=(12, 6), pady=(0, 12))
         self.probe_entry.bind("<Return>", lambda e: self._probe_server())
-        ctk.CTkButton(probe, text="Check", width=90, font=FONT,
-                      command=self._probe_server).grid(row=0, column=2)
-        self.probe_status = ctk.CTkLabel(probe, text="", font=FONT_SMALL,
-                                         text_color=("gray35", "gray60"), anchor="w")
-        self.probe_status.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ctk.CTkButton(card, text="Ping", width=80, height=30, font=FONT,
+                      command=self._probe_server).grid(row=2, column=2,
+                                                       padx=(0, 12),
+                                                       pady=(0, 12))
+        self.probe_status = ctk.CTkLabel(
+            card, text="", font=FONT_SMALL,
+            text_color=("gray35", "gray60"), anchor="w")
+        self.probe_status.grid(row=3, column=0, columnspan=3, sticky="w",
+                               padx=12)
         self.probe_result = None
 
+        # live-status caches for the history list
+        self._server_status = {}    # host -> probe dict | None (offline)
+        self._server_favicons = {}  # host -> CTkImage
+        self._server_rows = {}      # host -> widget refs (rebuilt per render)
+
         self.servers_scroll = _scroll_frame(frame)
-        self.servers_scroll.grid(row=2, column=0, sticky="nsew", padx=8, pady=(4, 16))
+        self.servers_scroll.grid(row=2, column=0, sticky="nsew",
+                                 padx=8, pady=(0, 16))
         frame.grid_rowconfigure(2, weight=1)
         return frame
 
@@ -651,69 +671,158 @@ class LauncherApp(ctk.CTk):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _favicon_image(self, r, size=40):
+        """Decode an SLP/mcsrvstat favicon into a CTkImage."""
+        try:
+            import base64
+            import io
+            from PIL import Image
+            f = r.get("favicon") or ""
+            if not f:
+                return None
+            if "," in f:
+                f = f.split(",", 1)[1]
+            img = Image.open(io.BytesIO(base64.b64decode(f)))
+            return ctk.CTkImage(light_image=img, dark_image=img,
+                                size=(size, size))
+        except Exception:
+            return None
+
+    def _server_icon_box(self, parent, host, img=None):
+        box = ctk.CTkFrame(parent, width=44, height=44, corner_radius=6,
+                           fg_color=PALETTE["card"])
+        box.pack_propagate(False)
+        if img is not None:
+            lb = ctk.CTkLabel(box, image=img, text="")
+        else:
+            lb = ctk.CTkLabel(box, text=host[:1].upper(), font=FONT_BOLD)
+        lb.pack(expand=True)
+        return box
+
+    def _pill(self, parent, text):
+        p = ctk.CTkFrame(parent, fg_color=PALETTE["card"], corner_radius=8)
+        p.pack(side="left", padx=(8, 0))
+        ctk.CTkLabel(p, text=text, font=FONT_SMALL).pack(padx=8, pady=1)
+        return p
+
     def _show_probe_result(self, host, port, r):
         port = port or 25565
         ver = r.get("version") or {}
         players = r.get("players") or {}
         motd = core.clean_motd(r.get("description")).replace("\n", " ").strip()
-        ver_name = ver.get("name", "?")
-        via = f" [{r['via']}]" if r.get("via") == "cached status" else ""
-        self.probe_status.configure(
-            text=f"{host}:{port} — {ver_name} · "
-                 f"{players.get('online', '?')}/{players.get('max', '?')} online"
-                 + (f" · {motd[:60]}" if motd else "") + via)
+        ver_name = str(ver.get("name", "?"))
+        self.probe_status.configure(text="")
+        key = host if port == 25565 else f"{host}:{port}"
+        self._server_status[key] = r
+        fav = self._favicon_image(r)
+        if fav:
+            self._server_favicons[key] = fav
 
-        self.probe_result = ctk.CTkFrame(self.pages["servers"], fg_color=PALETTE["card"])
-        self.probe_result.grid(row=3, column=0, sticky="ew", padx=8, pady=(0, 12))
+        if self.probe_result:
+            self.probe_result.destroy()
+        res = ctk.CTkFrame(self._ping_card, fg_color=PALETTE["muted"],
+                           corner_radius=6)
+        res.grid(row=4, column=0, columnspan=3, sticky="ew",
+                 padx=12, pady=(0, 12))
+        self.probe_result = res
+
+        self._server_icon_box(res, host, fav).pack(side="left",
+                                                 padx=(8, 12), pady=8)
+        info = ctk.CTkFrame(res, fg_color="transparent")
+        info.pack(side="left", fill="x", expand=True, pady=8)
+
+        line1 = ctk.CTkFrame(info, fg_color="transparent")
+        line1.pack(fill="x")
+        ctk.CTkLabel(line1, text=key, font=FONT_BOLD).pack(side="left")
+        ctk.CTkLabel(line1, text="  ● online", font=FONT_SMALL,
+                     text_color=("#25a34a", "#25a34a")).pack(side="left")
+        self._pill(line1, ver_name)
+        self._pill(line1,
+                   f"{players.get('online', '?')}/{players.get('max', '?')} players")
+        if r.get("via") == "cached status":
+            self._pill(line1, "cached")
+
+        if motd:
+            ctk.CTkLabel(info, text=motd[:110], font=FONT_SMALL, anchor="w",
+                         justify="left", wraplength=430,
+                         text_color=("gray35", "gray60")
+                         ).pack(fill="x", pady=(2, 0))
 
         mc_guess = next((v["id"] for v in self.mc_versions
-                         if v.get("type") == "release" and v["id"] in str(ver_name)),
-                        None)
+                         if v.get("type") == "release"
+                         and v["id"] in ver_name), None)
 
         def make_instance():
             mc = mc_guess or ver_name
-            existing = {i["mc_version"] for i in self.instances}
-            if mc not in existing or True:
-                self._open_instance_editor(prefill={
-                    "name": f"{host} {mc}", "loader_id": "vanilla",
-                    "mc_version": mc, "loader_version": "",
-                    "server": host, "server_port": str(port)})
+            self._open_instance_editor(prefill={
+                "name": f"{host} {mc}", "loader_id": "vanilla",
+                "mc_version": mc, "loader_version": "",
+                "server": host, "server_port": str(port)})
 
-        ctk.CTkButton(self.probe_result, text=f"Create {ver_name} instance →",
-                      font=FONT_SMALL, fg_color=("#1a7f37", "#1a7f37"),
+        ctk.CTkButton(res, text="Create instance", font=FONT_SMALL, width=110,
+                      fg_color=("#1a7f37", "#1a7f37"),
                       hover_color=("#25a34a", "#25a34a"),
-                      command=make_instance).pack(side="right", padx=10, pady=8)
-        ctk.CTkLabel(self.probe_result,
-                     text=f"Server runs {ver_name}"
-                     + (f" (matched {mc_guess})" if mc_guess else " - version not in your list"),
-                     font=FONT).pack(side="left", padx=10, pady=8)
+                      command=make_instance).pack(side="right", padx=10,
+                                                  pady=8)
 
     def _render_servers(self):
         if not hasattr(self, "servers_scroll"):
             return
         for child in self.servers_scroll.winfo_children():
             child.destroy()
+        self._server_rows = {}
         stats = config.load_server_stats()
         if not stats:
             ctk.CTkLabel(
                 self.servers_scroll,
-                text="No server playtime yet - launch a game and join a server",
+                text="No servers yet - ping one above, or launch a game "
+                     "and join a server",
                 font=FONT, text_color=("gray35", "gray60")).pack(pady=20)
             return
         ordered = sorted(stats.items(), key=lambda kv: kv[1].get("secs", 0),
                          reverse=True)
-        for host, data in ordered:
-            row = ctk.CTkFrame(self.servers_scroll, fg_color=PALETTE["card"])
+        ctk.CTkLabel(self.servers_scroll,
+                     text=f"RECENT SERVERS · {len(ordered)}",
+                     font=FONT_SMALL,
+                     text_color=("gray35", "gray60")).pack(anchor="w",
+                                                          padx=6, pady=(2, 6))
+        for host, data in ordered[:15]:
+            row = ctk.CTkFrame(self.servers_scroll, fg_color=PALETTE["card"],
+                               corner_radius=8)
             row.pack(fill="x", pady=4, padx=4)
-            ctk.CTkLabel(row, text=host, font=FONT_BOLD).pack(
-                side="left", padx=12, pady=10)
-            meta = f"{self._fmt_duration(data.get('secs', 0))}  —  " \
+
+            icon = self._server_icon_box(
+                row, host, self._server_favicons.get(host))
+            icon.pack(side="left", padx=(10, 12), pady=10)
+
+            info = ctk.CTkFrame(row, fg_color="transparent")
+            info.pack(side="left", fill="x", expand=True, pady=8)
+
+            line1 = ctk.CTkFrame(info, fg_color="transparent")
+            line1.pack(fill="x")
+            ctk.CTkLabel(line1, text=host, font=FONT_BOLD).pack(side="left")
+            status_lbl = ctk.CTkLabel(line1, text="  pinging...",
+                                      font=FONT_SMALL,
+                                      text_color=("gray35", "gray60"))
+            status_lbl.pack(side="left")
+            players_lbl = ctk.CTkLabel(line1, text="", font=FONT_SMALL,
+                                       text_color=("gray35", "gray60"))
+            players_lbl.pack(side="left", padx=(8, 0))
+
+            meta = f"{self._fmt_duration(data.get('secs', 0))} played  ·  " \
                    f"{self._fmt_last_played(data.get('last_played', 0))}"
-            ctk.CTkLabel(row, text=meta, font=FONT_SMALL,
-                         text_color=("gray35", "gray60")).pack(side="left", padx=8)
+            ctk.CTkLabel(info, text=meta, font=FONT_SMALL, anchor="w",
+                         text_color=("gray35", "gray60")
+                         ).pack(fill="x", pady=(2, 0))
+
+            self._server_rows[host] = {"status": status_lbl,
+                                       "players": players_lbl,
+                                       "icon": icon}
+            self._ping_server_row(host)
 
             inst_id = data.get("last_instance_id")
-            inst = next((i for i in self.instances if i.get("id") == inst_id), None)
+            inst = next((i for i in self.instances
+                         if i.get("id") == inst_id), None)
             if inst:
                 if inst_id in self._running:
                     ctk.CTkLabel(row, text="● running", font=FONT_SMALL,
@@ -721,12 +830,74 @@ class LauncherApp(ctk.CTk):
                                  ).pack(side="right", padx=12)
                 else:
                     ctk.CTkButton(
-                        row, text=f"Play ({inst.get('name', '?')})", width=150,
-                        height=26, font=FONT_SMALL,
+                        row, text="Play", width=90, height=28,
+                        font=FONT_SMALL,
                         fg_color=("#1a7f37", "#1a7f37"),
                         hover_color=("#25a34a", "#25a34a"),
                         command=lambda i=inst: self._instance_play(i)
                         ).pack(side="right", padx=12)
+            else:
+                ctk.CTkButton(
+                    row, text="Set up", width=90, height=28,
+                    font=FONT_SMALL,
+                    fg_color=PALETTE["muted"],
+                    hover_color=PALETTE["muted_hover"],
+                    command=lambda h=host: self._open_instance_editor(
+                        prefill={"name": h, "loader_id": "vanilla",
+                                 "mc_version": "", "loader_version": "",
+                                 "server": h.partition(":")[0],
+                                 "server_port":
+                                     h.partition(":")[2] or "25565"})
+                    ).pack(side="right", padx=12)
+
+    def _ping_server_row(self, host):
+        h, sep, p_s = host.partition(":")
+        try:
+            port = int(p_s) if sep else None
+        except ValueError:
+            port = None
+
+        def work():
+            try:
+                r = core.probe_server(h, port, timeout=4)
+                self.ui_call(self._apply_row_status, host, r)
+            except Exception:
+                self.ui_call(self._apply_row_status, host, None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_row_status(self, host, r):
+        self._server_status[host] = r
+        if r is not None:
+            fav = self._favicon_image(r)
+            if fav:
+                self._server_favicons[host] = fav
+        refs = self._server_rows.get(host)
+        if not refs:
+            return
+        try:
+            if not refs["status"].winfo_exists():
+                return
+        except Exception:
+            return
+        if r is None:
+            refs["status"].configure(
+                text="  ● offline", text_color=("#c0392b", "#c0392b"))
+            refs["players"].configure(text="")
+        else:
+            players = r.get("players") or {}
+            refs["status"].configure(
+                text="  ● online", text_color=("#25a34a", "#25a34a"))
+            refs["players"].configure(
+                text=f"{players.get('online', '?')}/"
+                     f"{players.get('max', '?')} online")
+            if host in self._server_favicons:
+                for w in refs["icon"].winfo_children():
+                    w.destroy()
+                ctk.CTkLabel(
+                    refs["icon"],
+                    image=self._server_favicons[host],
+                    text="").pack(expand=True)
 
     def _save_current_as_instance(self):
         loader_id = self._current_loader()
