@@ -2365,9 +2365,12 @@ class LauncherApp(ctk.CTk):
         entry.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 14))
         entry.focus()
 
-        state = {"since": 0, "open": True}
+        state = {"since": 0, "open": True, "seen": set()}
 
         def render_msg(m):
+            if m["id"] in state["seen"]:
+                return
+            state["seen"].add(m["id"])
             mine = m["sender"].lower() == friend.lower()
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x", padx=6, pady=2)
