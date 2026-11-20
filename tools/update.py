@@ -44,9 +44,12 @@ def _github():
     if not repo:
         return None
     try:
-        raw = _fetch(
-            f"https://raw.githubusercontent.com/{repo}/{branch}"
-            f"/launcher/config.py?v={int(time.time())}", 10).decode()
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}"
+            f"/contents/launcher/config.py?ref={branch}",
+            headers={"Accept": "application/vnd.github.raw",
+                     "User-Agent": "MCLauncher"})
+        raw = urllib.request.urlopen(req, timeout=10).read().decode()
         remote = (re.search(r'APP_VERSION\s*=\s*"([^"]+)"', raw) or [""])[1]
         if not remote or _ver(remote) <= _ver(config.APP_VERSION):
             return (remote or config.APP_VERSION), None
