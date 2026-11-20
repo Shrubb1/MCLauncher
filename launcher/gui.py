@@ -900,13 +900,22 @@ class LauncherApp(ctk.CTk):
                     font=FONT_SMALL,
                     fg_color=PALETTE["muted"],
                     hover_color=PALETTE["muted_hover"],
-                    command=lambda h=host: self._open_instance_editor(
-                        prefill={"name": h, "loader_id": "vanilla",
-                                 "mc_version": "", "loader_version": "",
-                                 "server": h.partition(":")[0],
-                                 "server_port":
-                                     h.partition(":")[2] or "25565"})
+                    command=lambda h=host: self._setup_for_server(h)
                     ).pack(side="right", padx=12)
+
+    def _setup_for_server(self, host):
+        """Open the instance editor prefilled for a history server."""
+        h, sep, p_s = host.partition(":")
+        port = p_s if sep else "25565"
+        r = self._server_status.get(host) or {}
+        ver = str((r.get("version") or {}).get("name", ""))
+        # match the newest release id appearing in the server's version string
+        mc = next((v["id"] for v in self.mc_versions
+                   if v.get("type") == "release" and v["id"] in ver), "")
+        self._open_instance_editor(prefill={
+            "name": f"{h} {mc}" if mc else h,
+            "loader_id": "vanilla", "mc_version": mc,
+            "loader_version": "", "server": h, "server_port": port})
 
     def _ping_server_row(self, host):
         h, sep, p_s = host.partition(":")
@@ -2016,10 +2025,10 @@ class LauncherApp(ctk.CTk):
             data.update(prefill)
 
         dlg = ctk.CTkToplevel(self)
+        dlg.withdraw()  # build off-screen: no white flash, then show
         dlg.title("Edit Instance" if inst else "New Instance")
         dlg.geometry("520x750")
         dlg.transient(self)
-        dlg.grab_set()
         dlg.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(dlg, text="Name", font=FONT).grid(row=0, column=0, sticky="w", padx=20, pady=(18, 6))
@@ -2040,6 +2049,11 @@ class LauncherApp(ctk.CTk):
 
         mc_filter_entry = ctk.CTkEntry(mc_picker, placeholder_text="Type to filter versions...", font=FONT)
         mc_filter_entry.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
+        snap_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(mc_picker, text="Snapshots", variable=snap_var,
+                        font=FONT_SMALL, width=20,
+                        command=lambda: refresh_mc_versions()
+                        ).grid(row=0, column=1, padx=(0, 6), pady=(6, 2))
         mc_selected_var = tk.StringVar(value=data["mc_version"])
         mc_sel_label = ctk.CTkLabel(mc_picker, text="", font=FONT_SMALL,
                                   text_color=("#4a9eff", "#4a9eff"), anchor="w")
@@ -2086,19 +2100,6 @@ class LauncherApp(ctk.CTk):
         ctk.CTkEntry(dlg, textvariable=port_var, font=FONT,
                      placeholder_text="25565").grid(row=8, column=1, sticky="w",
                                                     padx=(0, 20), pady=6)
-
-        ctk.CTkLabel(dlg, text="Built-in mod", font=FONT).grid(row=9, column=0, sticky="w", padx=20, pady=6)
-        cmod_var = tk.BooleanVar(value=bool(data.get("client_mod", True)))
-        cmod_row = ctk.CTkFrame(dlg, fg_color="transparent")
-        cmod_row.grid(row=9, column=1, sticky="w", padx=(0, 20), pady=6)
-        cmod_cb = ctk.CTkCheckBox(cmod_row, text="HUD & QoL mod",
-                                variable=cmod_var, font=FONT)
-        cmod_cb.pack(side="left")
-        if users.is_licensed():
-            cmod_var.set(True)
-            cmod_cb.configure(state="disabled")
-        ctk.CTkLabel(cmod_row, text="FPS/ping/coords/zoom - vanilla runs through Fabric",
-                     font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
         def selected_loader_id():
             label = loader_menu.get()
@@ -2162,7 +2163,14 @@ class LauncherApp(ctk.CTk):
                 child.destroy()
 
             def work():
-                versions = core.loader_mc_versions(lid, stable_only=True)
+                if lid == "vanilla":
+                    # mainline releases only; snapshots behind the checkbox
+                    versions = [v["id"] for v in self.mc_versions
+                                if v.get("type") == "release" or
+                                (snap_var.get() and v.get("type") == "snapshot")]
+                else:
+                    versions = core.loader_mc_versions(
+                        lid, stable_only=not snap_var.get())
                 self.ui_call(set_mc_values, lid, versions)
 
             threading.Thread(target=work, daemon=True).start()
@@ -2210,6 +2218,10 @@ class LauncherApp(ctk.CTk):
         loader_menu.configure(command=lambda _v: refresh_mc_versions())
         if data["mc_version"]:
             mc_sel_label.configure(text=f"Selected: {data['mc_version']}")
+            # editing a snapshot instance: keep it selectable
+            if any(v["id"] == data["mc_version"] and v.get("type") == "snapshot"
+                   for v in self.mc_versions):
+                snap_var.set(True)
 
         def on_save():
             name = name_var.get().strip() or auto_name()
@@ -2238,7 +2250,7 @@ class LauncherApp(ctk.CTk):
                 "ram_mb": ram,
                 "separate_game_dir": sep_var.get(),
                 "shared_assets": shared_var.get(),
-                "client_mod": cmod_var.get(),
+                "client_mod": data.get("client_mod", True),
                 "server": server_var.get().strip(),
                 "server_port": port_var.get().strip(),
                 "created": data.get("created") or int(time.time()),
@@ -2267,6 +2279,8 @@ class LauncherApp(ctk.CTk):
         ctk.CTkButton(btn_row, text="Save", width=90, command=on_save).pack(side="right", padx=6)
 
         refresh_mc_versions()
+        dlg.deiconify()
+        dlg.grab_set()
 
     def _build_accounts(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
