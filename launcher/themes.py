@@ -33,10 +33,11 @@ def _mix(a, b, t):
 
 
 def _deep_set(d, key, dark, light=None):
-    """Set a color entry; tuple entries keep their light-mode value."""
+    """Set a color entry; our color fills both light and dark slots so the
+    theme is identical regardless of OS appearance mode."""
     if key in d:
         if isinstance(d[key], list) and len(d[key]) == 2:
-            d[key] = [light if light is not None else d[key][0], dark]
+            d[key] = [light if light is not None else dark, dark]
         else:
             d[key] = dark
 
@@ -131,44 +132,18 @@ def _build_theme(name, accent, hover, button_text, app_bg, frame_bg,
 
 
 # name -> theme def (accent, hover, text, app, frame, top, border, entry,
-#                   scroll, radius, palette)  -- explicit or via _mk()
+#                   scroll, radius, palette)  -- monochrome: black & white
 _DEFS = {
-    "onyx": ("#3d7ff0", "#2f68d8", "#eef2ff", "#14161a", "#1d2026",
-             "#22252c", "#30363f", "#23272e", "#2c313a", 4,
-             {"sidebar": "#101215", "card": "#1d2026", "muted": "#2c313a",
-              "muted_hover": "#363c46", "nav": "#2c313a",
-              "accent": "#4d8dff"}),
-    "indigo": ("#7c6cf5", "#6657e0", "#f0eeff", "#16141f", "#1e1b2e",
-               "#232040", "#312b52", "#231f38", "#2b2742", 8,
-               {"sidebar": "#100e19", "card": "#1e1b2e", "muted": "#2b2742",
-                "muted_hover": "#37315a", "nav": "#2b2742",
-                "accent": "#9a8dff"}),
-    "emerald": ("#12b586", "#0d9570", "#eafff7", "#111916", "#17231f",
-                "#1c2b26", "#294039", "#1c2b26", "#22322c", 6,
-                {"sidebar": "#0d1311", "card": "#17231f", "muted": "#22322c",
-                 "muted_hover": "#2b4239", "nav": "#22322c",
-                 "accent": "#2fd6a3"}),
-    "ember": ("#e0853d", "#c46f2f", "#fff4ea", "#1a1410", "#241b15",
-              "#2b2018", "#40302a", "#2a211a", "#332720", 6,
-              {"sidebar": "#130e0a", "card": "#241b15", "muted": "#332720",
-               "muted_hover": "#423228", "nav": "#332720",
-               "accent": "#f0a05a"}),
-    "slate": _mk("#8b9bb4", "#6d7f9c", "#39424f", 6),
-    "crimson": _mk("#e05252", "#bd3a3a", "#4d2828", 6),
-    "rose": _mk("#ef6da0", "#d14f85", "#4a2b3d", 8),
-    "ocean": _mk("#2cb5dd", "#2196bc", "#1d3d4a", 6),
-    "forest": _mk("#55b25a", "#429a47", "#24402a", 6),
-    "grape": _mk("#a06be8", "#8450c9", "#3a2a4a", 8),
-    "gold": _mk("#e0b53d", "#bd9428", "#4a3d1e", 4),
-    "mint": _mk("#42d6b5", "#2bb396", "#1e4038", 8),
-    "arctic": _mk("#7cc7f0", "#5aa8d4", "#2a3d4d", 8),
-    "midnight": _mk("#4a5fd0", "#3a4ab0", "#1e2444", 4),
-    "lime": _mk("#a3d635", "#85b02a", "#33401e", 6),
-    "coral": _mk("#f07a5a", "#d15f42", "#4a2e26", 8),
-    "fuchsia": _mk("#e04ad0", "#bd35ae", "#44203f", 8),
-    "mocha": _mk("#b08968", "#916d50", "#3a2e26", 6),
-    "nord": _mk("#88c0d0", "#63a3b4", "#2a3a44", 6),
-    "cyber": _mk("#3df06a", "#2ac253", "#1a3324", 4),
+    "black": ("#565e6b", "#454c57", "#f2f4f8", "#0d0e10", "#15171a",
+              "#1a1d21", "#292d33", "#191c20", "#22262b", 4,
+              {"sidebar": "#090a0b", "card": "#15171a", "muted": "#22262b",
+               "muted_hover": "#30353d", "nav": "#22262b",
+               "accent": "#6b7480"}),
+    "white": ("#374151", "#2b3442", "#ffffff", "#f4f5f7", "#ffffff",
+              "#eceef1", "#d4d8de", "#ffffff", "#dfe3e9", 4,
+              {"sidebar": "#e9ebef", "card": "#ffffff", "muted": "#dfe3e9",
+               "muted_hover": "#c8cdd5", "nav": "#dfe3e9",
+               "accent": "#4b5563"}),
 }
 
 THEMES = list(_DEFS)
@@ -185,7 +160,7 @@ def _pick_theme():
             return saved
     except Exception:
         pass
-    return env if env in _DEFS else "onyx"
+    return env if env in _DEFS else "black"
 
 
 THEME_NAME = _pick_theme()

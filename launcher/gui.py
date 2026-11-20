@@ -19,7 +19,7 @@ import customtkinter as ctk
 from . import auth, chat, config, core, users
 from .themes import CTK_THEME_PATH, PALETTE, THEME_NAME, THEMES
 
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light" if THEME_NAME == "white" else "dark")
 ctk.set_default_color_theme(CTK_THEME_PATH)
 
 # Font objects are created in LauncherApp.__init__ (a Tk root must exist first)
@@ -41,11 +41,11 @@ MAX_RENDERED_VERSIONS = 200
 FILTER_DEBOUNCE_MS = 250
 
 JVM_PRESETS = {
-    "Default": "",
-    "Low-end PC (4-6 GB)": "-XX:+UseG1GC -XX:MaxGCPauseMillis=130 "
-                           "-XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC",
-    "High RAM / ZGC (needs Java 21+)": "-XX:+UseZGC",
-    "Aikar's Flags": "-XX:+UseG1GC -XX:+ParallelRefProcEnabled "
+    "Standard (recommended)": "",
+    "Low memory / older PC": "-XX:+UseG1GC -XX:MaxGCPauseMillis=130 "
+                             "-XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC",
+    "Lots of RAM / new Java (ZGC)": "-XX:+UseZGC",
+    "Max performance (Aikar's flags)": "-XX:+UseG1GC -XX:+ParallelRefProcEnabled "
                      "-XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions "
                      "-XX:+DisableExplicitGC -XX:+AlwaysPreTouch "
                      "-XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 "
@@ -56,7 +56,7 @@ JVM_PRESETS = {
                      "-XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 "
                      "-XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1",
 }
-ZGC_PRESET = "High RAM / ZGC (needs Java 21+)"
+ZGC_PRESET = "Lots of RAM / new Java (ZGC)"
 
 
 def _scroll_frame(parent, **kw):
@@ -180,7 +180,7 @@ class LauncherApp(ctk.CTk):
 
         _title_box(sidebar, "MCLauncher").pack(pady=(24, 4))
         ctk.CTkLabel(sidebar, text="Minecraft launcher", font=FONT_SMALL,
-                     text_color=("gray60", "gray60")).pack(pady=(0, 20))
+                     text_color=("gray35", "gray60")).pack(pady=(0, 20))
 
         self.nav_buttons = {}
         for name, label in (("profile", "Profile"), ("home", "Play"),
@@ -190,7 +190,7 @@ class LauncherApp(ctk.CTk):
                             ("mod", "Client Mod")):
             btn = ctk.CTkButton(
                 sidebar, text=label, anchor="w", height=38,
-                font=FONT_BOLD, fg_color="transparent", text_color=("gray80", "gray80"),
+                font=FONT_BOLD, fg_color="transparent", text_color=("gray20", "gray80"),
                 hover_color=PALETTE["nav"], command=lambda n=name: self._show_page(n),
             )
             btn.pack(fill="x", padx=12, pady=2)
@@ -243,7 +243,7 @@ class LauncherApp(ctk.CTk):
             else:
                 frame.grid_remove()
                 self.nav_buttons[page_name].configure(fg_color="transparent",
-                                                      text_color=("gray80", "gray80"))
+                                                      text_color=("gray20", "gray80"))
         for n in self.nav_buttons:
             self._sync_badge_bg(n)
 
@@ -311,7 +311,7 @@ class LauncherApp(ctk.CTk):
         bottom.grid(row=5, column=0, sticky="ew", padx=8, pady=(4, 16))
 
         self.status_label = ctk.CTkLabel(bottom, text="", font=FONT_SMALL,
-                                         text_color=("gray60", "gray60"), anchor="w")
+                                         text_color=("gray35", "gray60"), anchor="w")
         self.status_label.pack(fill="x", pady=(0, 4))
 
         self._progress_visible = False
@@ -327,7 +327,7 @@ class LauncherApp(ctk.CTk):
         self.play_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         ctk.CTkButton(btn_row, text="Save as Instance", height=52, width=140, font=FONT,
-                      fg_color=PALETTE["nav"], text_color=("gray85", "gray85"),
+                      fg_color=PALETTE["nav"], text_color=("gray15", "gray85"),
                       hover_color=PALETTE["muted"],
                       command=self._save_current_as_instance).grid(row=0, column=1)
 
@@ -365,7 +365,7 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(
                 self.instances_scroll,
                 text="No instances yet - pick a version on the Play tab and click 'Save as Instance'",
-                font=FONT, text_color=("gray60", "gray60"),
+                font=FONT, text_color=("gray35", "gray60"),
             ).pack(pady=20)
             return
 
@@ -385,7 +385,7 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(info, text=name_text, font=FONT_BOLD,
                          text_color=("#e0a030", "#e0a030") if inst["id"] in self._hung
                          else ("#25a34a", "#25a34a") if inst["id"] in self._running
-                         else ("gray85", "gray85")).pack(anchor="w")
+                         else ("gray15", "gray85")).pack(anchor="w")
             meta = inst["mc_version"]
             heap = self._live_heap.get(inst["id"])
             if inst["id"] in self._running and heap:
@@ -404,7 +404,7 @@ class LauncherApp(ctk.CTk):
             last = inst.get("last_played", 0)
             meta += f"  —  {self._fmt_last_played(last)}"
             ctk.CTkLabel(info, text=meta, font=FONT_SMALL,
-                         text_color=("gray60", "gray60")).pack(anchor="w")
+                         text_color=("gray35", "gray60")).pack(anchor="w")
 
             mini_row = ctk.CTkFrame(info, fg_color="transparent")
             mini_row.pack(anchor="w", pady=(6, 0))
@@ -502,7 +502,7 @@ class LauncherApp(ctk.CTk):
         ctk.CTkButton(probe, text="Check", width=90, font=FONT,
                       command=self._probe_server).grid(row=0, column=2)
         self.probe_status = ctk.CTkLabel(probe, text="", font=FONT_SMALL,
-                                         text_color=("gray60", "gray60"), anchor="w")
+                                         text_color=("gray35", "gray60"), anchor="w")
         self.probe_status.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
         self.probe_result = None
 
@@ -587,7 +587,7 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(
                 self.servers_scroll,
                 text="No server playtime yet - launch a game and join a server",
-                font=FONT, text_color=("gray60", "gray60")).pack(pady=20)
+                font=FONT, text_color=("gray35", "gray60")).pack(pady=20)
             return
         ordered = sorted(stats.items(), key=lambda kv: kv[1].get("secs", 0),
                          reverse=True)
@@ -599,7 +599,7 @@ class LauncherApp(ctk.CTk):
             meta = f"{self._fmt_duration(data.get('secs', 0))}  —  " \
                    f"{self._fmt_last_played(data.get('last_played', 0))}"
             ctk.CTkLabel(row, text=meta, font=FONT_SMALL,
-                         text_color=("gray60", "gray60")).pack(side="left", padx=8)
+                         text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
             inst_id = data.get("last_instance_id")
             inst = next((i for i in self.instances if i.get("id") == inst_id), None)
@@ -694,7 +694,7 @@ class LauncherApp(ctk.CTk):
             dlg, text="Send this code to a friend - they paste it into "
                       "'Import code' on the Instances page and get the same "
                       "version + mods downloaded automatically.",
-            font=FONT_SMALL, text_color=("gray60", "gray60"), wraplength=520,
+            font=FONT_SMALL, text_color=("gray35", "gray60"), wraplength=520,
             justify="left").grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
 
         box = ctk.CTkTextbox(dlg, height=80, font=FONT_SMALL, wrap="char")
@@ -724,7 +724,7 @@ class LauncherApp(ctk.CTk):
         entry = ctk.CTkEntry(dlg, font=FONT_SMALL)
         entry.grid(row=1, column=0, sticky="ew", padx=16, pady=4)
         status = ctk.CTkLabel(dlg, text="", font=FONT_SMALL,
-                              text_color=("gray60", "gray60"), anchor="w")
+                              text_color=("gray35", "gray60"), anchor="w")
         status.grid(row=2, column=0, sticky="w", padx=16)
 
         btn_row = ctk.CTkFrame(dlg, fg_color="transparent")
@@ -879,7 +879,7 @@ class LauncherApp(ctk.CTk):
 
             worlds = core.list_worlds(str(saves_dir))
             ctk.CTkLabel(scroll, text=f"{len(worlds)} world(s)", font=FONT_SMALL,
-                         text_color=("gray60", "gray60")).pack(anchor="w", pady=(4, 2))
+                         text_color=("gray35", "gray60")).pack(anchor="w", pady=(4, 2))
             GAMEMODES = {0: "survival", 1: "creative", 2: "adventure", 3: "spectator"}
             for w in worlds:
                 row = ctk.CTkFrame(scroll, fg_color=PALETTE["card"])
@@ -896,13 +896,13 @@ class LauncherApp(ctk.CTk):
                     if ld.get("days"):
                         parts.append(f"day {ld['days']}")
                     ctk.CTkLabel(info, text=" · ".join(parts), font=FONT_SMALL,
-                                 text_color=("gray60", "gray60"), anchor="w"
+                                 text_color=("gray35", "gray60"), anchor="w"
                                  ).pack(anchor="w")
                     if ld.get("seed") is not None:
                         seed_row = ctk.CTkFrame(info, fg_color="transparent")
                         seed_row.pack(anchor="w")
                         ctk.CTkLabel(seed_row, text=f"seed: {ld['seed']}",
-                                     font=FONT_SMALL, text_color=("gray55", "gray55")
+                                     font=FONT_SMALL, text_color=("gray30", "gray55")
                                      ).pack(side="left")
                         ctk.CTkButton(seed_row, text="copy", width=40, height=18,
                                       font=FONT_SMALL, fg_color=PALETTE["muted"],
@@ -934,14 +934,14 @@ class LauncherApp(ctk.CTk):
 
             backups = core.list_backups(str(backups_dir))
             ctk.CTkLabel(scroll, text=f"{len(backups)} backup(s)", font=FONT_SMALL,
-                         text_color=("gray60", "gray60")).pack(anchor="w", pady=(14, 2))
+                         text_color=("gray35", "gray60")).pack(anchor="w", pady=(14, 2))
             for b in backups:
-                row = ctk.CTkFrame(scroll, fg_color=("gray22", "gray22"))
+                row = ctk.CTkFrame(scroll, fg_color=("gray92", "gray22"))
                 row.pack(fill="x", pady=2)
                 ctk.CTkLabel(row, text=b["name"], font=FONT_SMALL).pack(
                     side="left", padx=10, pady=6)
                 ctk.CTkLabel(row, text=fmt_size(b["size"]), font=FONT_SMALL,
-                             text_color=("gray60", "gray60")).pack(side="left")
+                             text_color=("gray35", "gray60")).pack(side="left")
                 ctk.CTkButton(row, text="Delete", width=56, height=24, font=FONT_SMALL,
                               fg_color=("#a33", "#a33"), hover_color=("#c44", "#c44"),
                               command=lambda p=b["path"], n=b["name"]:
@@ -972,11 +972,11 @@ class LauncherApp(ctk.CTk):
                     continue
                 if not any_snaps:
                     ctk.CTkLabel(scroll, text="Snapshots (time-machine)",
-                                 font=FONT_SMALL, text_color=("gray60", "gray60")
+                                 font=FONT_SMALL, text_color=("gray35", "gray60")
                                  ).pack(anchor="w", pady=(14, 2))
                     any_snaps = True
                 for s in snaps:
-                    srow = ctk.CTkFrame(scroll, fg_color=("gray20", "gray20"))
+                    srow = ctk.CTkFrame(scroll, fg_color=("gray94", "gray20"))
                     srow.pack(fill="x", pady=1)
                     ctk.CTkLabel(srow, text=f"{w['name']} — {s['name']}",
                                  font=FONT_SMALL).pack(side="left", padx=10, pady=5)
@@ -1044,7 +1044,7 @@ class LauncherApp(ctk.CTk):
                 key=lambda f: f.stat().st_mtime, reverse=True)
             if not shots:
                 ctk.CTkLabel(scroll, text="No screenshots yet - take some with F2",
-                             font=FONT, text_color=("gray60", "gray60")).pack(pady=20)
+                             font=FONT, text_color=("gray35", "gray60")).pack(pady=20)
                 return
             for i, path in enumerate(shots):
                 cell = ctk.CTkFrame(scroll, fg_color=PALETTE["card"])
@@ -1059,14 +1059,14 @@ class LauncherApp(ctk.CTk):
                     scroll._images.append(tkimg)
                     ctk.CTkButton(cell, image=tkimg, text="", width=190,
                                   fg_color="transparent",
-                                  hover_color=("gray35", "gray35"),
+                                  hover_color=("gray85", "gray35"),
                                   command=lambda p=path: os.startfile(str(p))
                                   ).pack(padx=4, pady=(4, 0))
                 except Exception:
                     ctk.CTkLabel(cell, text="(unreadable)", font=FONT_SMALL,
                                  width=190).pack(padx=4, pady=(4, 0))
                 ctk.CTkLabel(cell, text=path.name, font=FONT_SMALL,
-                             text_color=("gray60", "gray60")).pack(pady=2)
+                             text_color=("gray35", "gray60")).pack(pady=2)
                 ctk.CTkButton(
                     cell, text="Delete", width=70, height=20, font=FONT_SMALL,
                     fg_color=("#a33", "#a33"), hover_color=("#c44", "#c44"),
@@ -1117,7 +1117,7 @@ class LauncherApp(ctk.CTk):
         inst_header = ctk.CTkFrame(installed_frame, fg_color="transparent")
         inst_header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
         inst_status = ctk.CTkLabel(inst_header, text="", font=FONT_SMALL,
-                                   text_color=("gray60", "gray60"))
+                                   text_color=("gray35", "gray60"))
         inst_status.pack(side="left")
         rollback_btn = ctk.CTkButton(inst_header, text="Roll back", width=90, height=26,
                                      font=FONT_SMALL, fg_color=PALETTE["muted"],
@@ -1201,12 +1201,12 @@ class LauncherApp(ctk.CTk):
             mods = core.list_mods(str(mods_dir))
             if not mods:
                 ctk.CTkLabel(installed_list, text="No mods yet - install some from Browse Modrinth",
-                             font=FONT, text_color=("gray60", "gray60")).pack(pady=16)
+                             font=FONT, text_color=("gray35", "gray60")).pack(pady=16)
                 return
             for mod in mods:
                 row = ctk.CTkFrame(installed_list, fg_color=PALETTE["card"])
                 row.pack(fill="x", pady=2)
-                state_color = ("gray85", "gray85") if mod["enabled"] else ("gray55", "gray55")
+                state_color = ("gray15", "gray85") if mod["enabled"] else ("gray30", "gray55")
                 ctk.CTkLabel(row, text=mod["name"], font=FONT,
                              text_color=state_color).pack(side="left", padx=10, pady=6)
                 ctk.CTkButton(row, text="Delete", width=64, height=26, font=FONT_SMALL,
@@ -1246,7 +1246,7 @@ class LauncherApp(ctk.CTk):
                 sort_row.grid(row=1, column=0, sticky="w", padx=8, pady=(0, 4))
                 res_row = 2
                 ctk.CTkLabel(sort_row, text="Sort:", font=FONT_SMALL,
-                             text_color=("gray60", "gray60")).pack(side="left", padx=(0, 4))
+                             text_color=("gray35", "gray60")).pack(side="left", padx=(0, 4))
                 sort_menu = ctk.CTkOptionMenu(
                     sort_row, values=SORT_INDEXES, font=FONT_SMALL, width=130,
                     command=lambda v: (state.update(sort=v.lower()),
@@ -1270,7 +1270,7 @@ class LauncherApp(ctk.CTk):
             results.grid(row=res_row, column=0, sticky="nsew", padx=8, pady=(0, 8))
             frame.grid_rowconfigure(res_row, weight=1)
             status = ctk.CTkLabel(frame, text="", font=FONT_SMALL,
-                                  text_color=("gray60", "gray60"))
+                                  text_color=("gray35", "gray60"))
             status.grid(row=res_row + 1, column=0, sticky="w", padx=10, pady=(0, 6))
 
             return {"frame": frame, "entry": entry, "go": go_btn,
@@ -1285,7 +1285,7 @@ class LauncherApp(ctk.CTk):
                     child.destroy()
             if not hits and not append:
                 ctk.CTkLabel(tab["results"], text="No results", font=FONT,
-                             text_color=("gray60", "gray60")).pack(pady=16)
+                             text_color=("gray35", "gray60")).pack(pady=16)
                 return
             if not tab["state"]["desc"]:
                 hits = hits[::-1]
@@ -1298,11 +1298,11 @@ class LauncherApp(ctk.CTk):
                              anchor="w").pack(anchor="w")
                 desc = (hit.get("description") or "")[:110]
                 ctk.CTkLabel(text_col, text=desc, font=FONT_SMALL,
-                             text_color=("gray60", "gray60"), anchor="w",
+                             text_color=("gray35", "gray60"), anchor="w",
                              wraplength=400, justify="left").pack(anchor="w")
                 dl = hit.get("downloads", 0)
                 ctk.CTkLabel(text_col, text=f"{dl:,} downloads", font=FONT_SMALL,
-                             text_color=("gray55", "gray55"), anchor="w").pack(anchor="w")
+                             text_color=("gray30", "gray55"), anchor="w").pack(anchor="w")
                 btn = ctk.CTkButton(row, text="Install", width=80, height=28, font=FONT_SMALL)
                 btn.configure(command=lambda h=hit, b=btn: install_fn(h, b))
                 btn.pack(side="right", padx=10)
@@ -1488,7 +1488,7 @@ class LauncherApp(ctk.CTk):
                 ctk.CTkLabel(
                     saved_list,
                     text="Nothing saved - hit Save on a mod in Browse Modrinth",
-                    font=FONT, text_color=("gray60", "gray60")).pack(pady=16)
+                    font=FONT, text_color=("gray35", "gray60")).pack(pady=16)
                 return
             for m in mods:
                 row = ctk.CTkFrame(saved_list, fg_color=PALETTE["card"])
@@ -1499,7 +1499,7 @@ class LauncherApp(ctk.CTk):
                 ctk.CTkLabel(info, text=f"{m.get('title', '?')} · {tag}", font=FONT,
                              anchor="w").pack(anchor="w")
                 ctk.CTkLabel(info, text=f"{m.get('downloads', 0):,} downloads",
-                             font=FONT_SMALL, text_color=("gray55", "gray55"),
+                             font=FONT_SMALL, text_color=("gray30", "gray55"),
                              anchor="w").pack(anchor="w")
                 pid = m.get("project_id")
                 ctk.CTkButton(row, text="Remove", width=64, height=26, font=FONT_SMALL,
@@ -1708,7 +1708,7 @@ class LauncherApp(ctk.CTk):
         sep_row.grid(row=5, column=1, sticky="w", padx=(0, 20), pady=6)
         ctk.CTkCheckBox(sep_row, text="Isolated", variable=sep_var, font=FONT).pack(side="left")
         ctk.CTkLabel(sep_row, text="own mods/saves - no conflicts with other versions",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).pack(side="left", padx=8)
+                     font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
         ctk.CTkLabel(dlg, text="Shared assets", font=FONT).grid(row=6, column=0, sticky="w", padx=20, pady=6)
         shared_var = tk.BooleanVar(value=bool(data.get("shared_assets")))
@@ -1718,7 +1718,7 @@ class LauncherApp(ctk.CTk):
                         variable=shared_var, font=FONT).pack(side="left")
         ctk.CTkLabel(shared_row, text="resourcepacks/shaderpacks/screenshots/schematics "
                                       "shared across all your instances",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).pack(side="left", padx=8)
+                     font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
         ctk.CTkLabel(dlg, text="Auto-join server", font=FONT).grid(row=7, column=0, sticky="w", padx=20, pady=6)
         server_var = tk.StringVar(value=data.get("server", "") or "")
@@ -1743,7 +1743,7 @@ class LauncherApp(ctk.CTk):
             cmod_var.set(True)
             cmod_cb.configure(state="disabled")
         ctk.CTkLabel(cmod_row, text="FPS/ping/coords/zoom - vanilla runs through Fabric",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).pack(side="left", padx=8)
+                     font=FONT_SMALL, text_color=("gray35", "gray60")).pack(side="left", padx=8)
 
         def selected_loader_id():
             label = loader_menu.get()
@@ -1775,7 +1775,7 @@ class LauncherApp(ctk.CTk):
             for v, b in mc_buttons.items():
                 b.configure(
                     fg_color=("#2f6fed", "#1f5fd0") if v == vid else "transparent",
-                    text_color="white" if v == vid else ("gray85", "gray85"),
+                    text_color="white" if v == vid else ("gray15", "gray85"),
                 )
             refresh_loader_versions()
             maybe_update_name()
@@ -1790,7 +1790,7 @@ class LauncherApp(ctk.CTk):
                     continue
                 btn = ctk.CTkButton(
                     mc_version_list, text=vid, anchor="w",
-                    fg_color="transparent", text_color=("gray85", "gray85"),
+                    fg_color="transparent", text_color=("gray15", "gray85"),
                     hover_color=PALETTE["nav"], font=FONT, height=26,
                     command=lambda vid=vid: select_mc_version(vid),
                 )
@@ -1925,7 +1925,7 @@ class LauncherApp(ctk.CTk):
                       command=self._on_add_account).pack(side="right")
 
         self.accounts_status = ctk.CTkLabel(frame, text="", font=FONT_SMALL,
-                                            text_color=("gray60", "gray60"))
+                                            text_color=("gray35", "gray60"))
         self.accounts_status.grid(row=1, column=0, sticky="w", padx=8, pady=(0, 4))
 
         self.accounts_scroll = _scroll_frame(frame, label_text="")
@@ -2023,7 +2023,7 @@ class LauncherApp(ctk.CTk):
                 "Local-only account on this PC. "
                 "Buying the mod flips 'licensed'.")
         ctk.CTkLabel(su_card, text=note,
-                     font=FONT_SMALL, text_color=("gray60", "gray60"),
+                     font=FONT_SMALL, text_color=("gray35", "gray60"),
                      wraplength=560, justify="left"
                      ).pack(anchor="w", padx=12, pady=(0, 12))
 
@@ -2044,7 +2044,7 @@ class LauncherApp(ctk.CTk):
             else ("#e0a030", "#e0a030")).pack(side="left")
         if user["admin"]:
             ctk.CTkLabel(row, text="  ·  admin", font=FONT_SMALL,
-                         text_color=("gray60", "gray60")).pack(side="left")
+                         text_color=("gray35", "gray60")).pack(side="left")
 
         btns = ctk.CTkFrame(card, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -2082,7 +2082,7 @@ class LauncherApp(ctk.CTk):
                 text="The built-in HUD & QoL mod is locked until this account "
                      "is licensed. (Payment wiring comes later - for now the "
                      "flag is flipped manually.)",
-                font=FONT_SMALL, text_color=("gray60", "gray60"),
+                font=FONT_SMALL, text_color=("gray35", "gray60"),
                 wraplength=560, justify="left").pack(anchor="w", padx=12, pady=(0, 12))
 
         if user["admin"]:
@@ -2091,7 +2091,7 @@ class LauncherApp(ctk.CTk):
                 acard,
                 text="Type a profile username to manage its license - "
                      "asks for your password each time.",
-                font=FONT_SMALL, text_color=("gray60", "gray60"),
+                font=FONT_SMALL, text_color=("gray35", "gray60"),
                 wraplength=560, justify="left").pack(
                 anchor="w", padx=12, pady=(0, 6))
             grant_row = ctk.CTkFrame(acard, fg_color="transparent")
@@ -2175,7 +2175,7 @@ class LauncherApp(ctk.CTk):
                       command=self._render_friends).pack(side="right")
 
         self.friends_status = ctk.CTkLabel(frame, text="", font=FONT_SMALL,
-                                           text_color=("gray60", "gray60"))
+                                           text_color=("gray35", "gray60"))
         self.friends_status.grid(row=1, column=0, sticky="w", padx=8,
                                  pady=(0, 4))
 
@@ -2195,19 +2195,19 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(
                 self.friends_scroll,
                 text="Sign in on the Profile page to use Friends.",
-                font=FONT, text_color=("gray60", "gray60")).pack(pady=20)
+                font=FONT, text_color=("gray35", "gray60")).pack(pady=20)
             return
         if not user.get("token"):
             ctk.CTkLabel(
                 self.friends_scroll,
                 text="Friends needs an online account - sign out and back "
                      "in on Profile.",
-                font=FONT, text_color=("gray60", "gray60"),
+                font=FONT, text_color=("gray35", "gray60"),
                 wraplength=560, justify="left").pack(pady=20)
             return
         ctk.CTkLabel(self.friends_scroll, text="Loading...",
                      font=FONT_SMALL,
-                     text_color=("gray60", "gray60")).pack(pady=10)
+                     text_color=("gray35", "gray60")).pack(pady=10)
         threading.Thread(target=self._fetch_friends, args=(user["token"],),
                          daemon=True).start()
 
@@ -2288,7 +2288,7 @@ class LauncherApp(ctk.CTk):
                 else:
                     ctk.CTkLabel(r, text="waiting...",
                                  font=FONT_SMALL,
-                                 text_color=("gray60", "gray60")
+                                 text_color=("gray35", "gray60")
                                  ).pack(side="right")
 
         card = self._form_card(f"Friends ({len(data.get('friends', []))})",
@@ -2296,7 +2296,7 @@ class LauncherApp(ctk.CTk):
         names = data.get("friends", [])
         if not names:
             ctk.CTkLabel(card, text="No friends yet - add someone above.",
-                         font=FONT_SMALL, text_color=("gray60", "gray60")
+                         font=FONT_SMALL, text_color=("gray35", "gray60")
                          ).pack(anchor="w", padx=12, pady=(0, 12))
         for name in names:
             r = ctk.CTkFrame(card, fg_color="transparent")
@@ -2407,7 +2407,7 @@ class LauncherApp(ctk.CTk):
             row = ctk.CTkFrame(scroll, fg_color="transparent")
             row.pack(fill="x", padx=6, pady=2)
             who = friend if mine else "You"
-            col = PALETTE["accent"] if not mine else ("gray75", "gray75")
+            col = PALETTE["accent"] if not mine else ("gray25", "gray75")
             bubble = ctk.CTkLabel(
                 row, text=f"{who}: {m['text']}", font=FONT,
                 text_color=col, wraplength=400, justify="left")
@@ -2492,7 +2492,7 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(self.mod_scroll,
                          text="Sign in on the Profile page to manage "
                               "the client mod.",
-                         font=FONT, text_color=("gray60", "gray60")
+                         font=FONT, text_color=("gray35", "gray60")
                          ).pack(pady=20)
             return
 
@@ -2504,7 +2504,7 @@ class LauncherApp(ctk.CTk):
             ctk.CTkLabel(r, text=f"•  {title}", font=FONT_BOLD,
                          width=170, anchor="w").pack(side="left")
             ctk.CTkLabel(r, text=desc, font=FONT_SMALL,
-                         text_color=("gray60", "gray60"),
+                         text_color=("gray35", "gray60"),
                          wraplength=430, justify="left").pack(side="left")
         ctk.CTkLabel(fcard, text="", height=4).pack()
 
@@ -2555,7 +2555,7 @@ class LauncherApp(ctk.CTk):
                     state="normal" if url else "disabled")
                 self.mod_buy_lbl.configure(
                     text=url or "store link not set up yet",
-                    text_color=("gray60", "gray60") if url
+                    text_color=("gray35", "gray60") if url
                     else ("#e0a030", "#e0a030"))
             if getattr(self, "mod_store_entry", None) \
                     and url and not self.mod_store_entry.get():
@@ -2583,7 +2583,7 @@ class LauncherApp(ctk.CTk):
         self.mod_buy_lbl = ctk.CTkLabel(
             prow, text=url or "checking store...",
             font=FONT_SMALL,
-            text_color=("gray60", "gray60") if url else ("#e0a030", "#e0a030"))
+            text_color=("gray35", "gray60") if url else ("#e0a030", "#e0a030"))
         self.mod_buy_lbl.pack(side="left", padx=10)
 
         ctk.CTkLabel(pcard, text="Have a purchase key?",
@@ -2599,7 +2599,7 @@ class LauncherApp(ctk.CTk):
             command=self._mod_redeem)
         self.mod_redeem_btn.pack(side="left", padx=10)
         self.mod_key_status = ctk.CTkLabel(pcard, text="", font=FONT_SMALL,
-                                           text_color=("gray60", "gray60"),
+                                           text_color=("gray35", "gray60"),
                                            wraplength=560, justify="left")
         self.mod_key_status.pack(anchor="w", padx=12, pady=(0, 12))
 
@@ -2623,7 +2623,7 @@ class LauncherApp(ctk.CTk):
         self.mod_bind_btn.pack(side="left")
 
         self.mod_bind_status = ctk.CTkLabel(acard, text="", font=FONT_SMALL,
-                                            text_color=("gray60", "gray60"),
+                                            text_color=("gray35", "gray60"),
                                             wraplength=560, justify="left")
         self.mod_bind_status.pack(anchor="w", padx=12, pady=(0, 12))
         if bound and locked:
@@ -2672,7 +2672,7 @@ class LauncherApp(ctk.CTk):
             command=self._mod_genkeys)
         self.mod_gen_btn.pack(side="left")
         ctk.CTkLabel(grow, text="shown once - copy before closing",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")
+                     font=FONT_SMALL, text_color=("gray35", "gray60")
                      ).pack(side="left", padx=10)
 
         self.mod_keys_box = ctk.CTkTextbox(
@@ -2737,139 +2737,144 @@ class LauncherApp(ctk.CTk):
         top.grid(row=0, column=0, sticky="ew", padx=8, pady=(20, 8))
         _title_box(top, "Settings").pack(side="left")
 
-        frame = _scroll_frame(page, label_text="")
-        frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(4, 16))
-        frame.grid_columnconfigure(1, weight=1)
+        scroll = _scroll_frame(page, label_text="")
+        scroll.grid(row=1, column=0, sticky="nsew", padx=8, pady=(4, 16))
 
         self.settings_vars = {}
+        LABEL_W = 150
 
-        def row(r, label, key, width=380):
-            ctk.CTkLabel(frame, text=label, font=FONT).grid(row=r, column=0, sticky="w", padx=(12, 12), pady=8)
+        def hint(card, text):
+            ctk.CTkLabel(card, text=text, font=FONT_SMALL, justify="left",
+                         anchor="w", wraplength=560,
+                         text_color=("gray35", "gray60")
+                         ).pack(fill="x", padx=12, pady=(0, 10))
+
+        def field(card, label, key, note=None, width=300):
+            r = ctk.CTkFrame(card, fg_color="transparent")
+            r.pack(fill="x", padx=12, pady=(6, 0))
+            ctk.CTkLabel(r, text=label, font=FONT, width=LABEL_W,
+                         anchor="w").pack(side="left")
             var = tk.StringVar(value=str(self.settings.get(key, "")))
-            entry = ctk.CTkEntry(frame, textvariable=var, width=width, font=FONT)
-            entry.grid(row=r, column=1, sticky="w", padx=8, pady=8)
+            ctk.CTkEntry(r, textvariable=var, width=width,
+                         font=FONT).pack(side="left", padx=8)
             self.settings_vars[key] = var
-            return entry
+            if note:
+                hint(card, note)
+            return r
 
-        row(0, "Game directory", "game_dir")
-        browse = ctk.CTkButton(frame, text="Browse...", width=90, font=FONT,
-                               command=self._browse_game_dir)
-        browse.grid(row=0, column=1, sticky="e", padx=8)
+        # ---- Game ----------------------------------------------------
+        game = self._form_card("Game", parent=scroll)
+        r = ctk.CTkFrame(game, fg_color="transparent")
+        r.pack(fill="x", padx=12, pady=(6, 0))
+        ctk.CTkLabel(r, text="Game folder", font=FONT, width=LABEL_W,
+                     anchor="w").pack(side="left")
+        var = tk.StringVar(value=str(self.settings.get("game_dir", "")))
+        ctk.CTkEntry(r, textvariable=var, width=300,
+                     font=FONT).pack(side="left", padx=8)
+        self.settings_vars["game_dir"] = var
+        ctk.CTkButton(r, text="Browse...", width=90, font=FONT,
+                      command=self._browse_game_dir).pack(side="left")
+        hint(game, "Where Minecraft, mods and your instances live.")
+        field(game, "Java path (optional)", "java_path", width=300,
+              note="Leave empty to auto-detect. Used for mod installers "
+                   "and as a fallback Java.")
 
-        row(1, "Java executable (optional)", "java_path")
-        ctk.CTkLabel(frame, text="Leave empty to auto-detect. Used for installers and as fallback.",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(
-            row=2, column=1, sticky="w", padx=8)
-
-        # JVM preset dropdown - fills the args field with a tuned preset
-        ctk.CTkLabel(frame, text="JVM preset", font=FONT).grid(
-            row=3, column=0, sticky="w", padx=(12, 12), pady=8)
-        preset_row = ctk.CTkFrame(frame, fg_color="transparent")
-        preset_row.grid(row=3, column=1, sticky="w", padx=8, pady=8)
+        # ---- Performance ----------------------------------------------
+        perf = self._form_card("Performance", parent=scroll)
+        field(perf, "Memory (MB)", "default_ram_mb", width=110,
+              note="How much memory the game gets. "
+                   "Per-instance override lives in Instances.")
+        r = ctk.CTkFrame(perf, fg_color="transparent")
+        r.pack(fill="x", padx=12, pady=(6, 0))
+        ctk.CTkLabel(r, text="Performance preset", font=FONT,
+                     width=LABEL_W, anchor="w").pack(side="left")
         self.jvm_preset_menu = ctk.CTkOptionMenu(
-            preset_row, values=list(JVM_PRESETS) + ["Custom"], width=260,
+            r, values=list(JVM_PRESETS), width=260,
             font=FONT, command=self._apply_jvm_preset)
         current_args = str(self.settings.get("jvm_arguments", ""))
         match = next((name for name, args in JVM_PRESETS.items()
                       if args == current_args), None)
-        self.jvm_preset_menu.set(match or "Custom")
-        self.jvm_preset_menu.pack(side="left")
+        self.jvm_preset_menu.set(match or "Standard (recommended)")
+        self.jvm_preset_menu.pack(side="left", padx=8)
         self._java_major = None  # detected in background below
+        hint(perf, "Tunes how Java runs the game - applies instantly. "
+                   "Standard is fine for most people; only change this "
+                   "if the game stutters.")
 
-        row(4, "Extra JVM arguments", "jvm_arguments")
-        ctk.CTkLabel(frame, text='e.g. -XX:+UseG1GC -XX:MaxGCPauseMillis=200 - or pick a preset above',
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(row=5, column=1, sticky="w", padx=8)
+        # ---- Servers ---------------------------------------------------
+        srv = self._form_card("Servers", parent=scroll)
+        field(srv, "Auto-join server", "auto_join_server", width=300,
+              note="e.g. hypixel.net - the game joins this server on "
+                   "launch. Leave empty to pick a server in-game.")
 
-        row(6, "Auto-join server (optional)", "auto_join_server")
-        ctk.CTkLabel(frame, text="e.g. hypixel.net - leave empty to pick a server in-game",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(row=7, column=1, sticky="w", padx=8)
+        # ---- Game alerts ------------------------------------------------
+        alerts = self._form_card("Game alerts", parent=scroll)
+        field(alerts, "Alert triggers", "alert_patterns", width=300,
+              note="Words separated by | - pops a Windows notification "
+                   'when the game log matches (e.g. '
+                   '"whispered to you|auction sold|restarting").')
 
-        row(8, "Auto-join port", "auto_join_port", width=120)
-
-        row(9, "Default RAM (MB)", "default_ram_mb", width=120)
-        ctk.CTkLabel(frame, text="Memory given to the game (-Xmx). Per-instance override in Instances.",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(row=10, column=1, sticky="w", padx=8)
-
-        ctk.CTkLabel(frame, text="Custom resolution", font=FONT).grid(
-            row=11, column=0, sticky="w", padx=(12, 12), pady=8)
-        self.custom_res_var = tk.BooleanVar(value=bool(self.settings.get("custom_resolution")))
-        ctk.CTkCheckBox(frame, text="Enable", variable=self.custom_res_var).grid(
-            row=11, column=1, sticky="w", padx=8)
-
-        row(12, "Resolution width", "resolution_width", width=120)
-        row(13, "Resolution height", "resolution_height", width=120)
-
-
-
-        row(16, "Log alert patterns", "alert_patterns")
-        ctk.CTkLabel(frame,
-                     text="Words separated by | - pops a Windows notification when the game log matches "
-                          '(e.g. "auction sold|whispered to you|restarting")',
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(
-            row=17, column=1, sticky="w", padx=8)
-
-        ctk.CTkLabel(frame, text="Alert sound", font=FONT).grid(
-            row=18, column=0, sticky="w", padx=(12, 12), pady=8)
-        self.alert_sound_var = tk.BooleanVar(value=bool(self.settings.get("alert_sound", True)))
-        ctk.CTkCheckBox(frame, text="Play a beep with notifications",
-                        variable=self.alert_sound_var, font=FONT).grid(
-            row=18, column=1, sticky="w", padx=8)
-
-        self.save_btn = ctk.CTkButton(frame, text="Save settings", font=FONT_BOLD,
-                                      height=36, command=self._save_settings)
-        self.save_btn.grid(row=19, column=1, sticky="w", padx=8, pady=20)
-        self.save_status = ctk.CTkLabel(
-            frame, text="", font=FONT_SMALL,
-            text_color=("#25a34a", "#25a34a"))
-        self.save_status.grid(row=19, column=1, sticky="e", padx=8)
-
-        ctk.CTkLabel(frame, text="Theme", font=FONT_BOLD).grid(
-            row=20, column=0, sticky="w", padx=(12, 12), pady=(24, 8))
-        theme_row = ctk.CTkFrame(frame, fg_color="transparent")
-        theme_row.grid(row=20, column=1, sticky="w", padx=8, pady=(24, 8))
+        # ---- Appearance -------------------------------------------------
+        look = self._form_card("Appearance", parent=scroll)
+        r = ctk.CTkFrame(look, fg_color="transparent")
+        r.pack(fill="x", padx=12, pady=(6, 10))
+        ctk.CTkLabel(r, text="Theme", font=FONT, width=LABEL_W,
+                     anchor="w").pack(side="left")
         self.theme_menu = ctk.CTkOptionMenu(
-            theme_row, values=[t.title() for t in THEMES], width=180,
+            r, values=[t.title() for t in THEMES], width=160,
             font=FONT, command=self._on_theme_pick)
         self.theme_menu.set(THEME_NAME.title())
-        self.theme_menu.pack(side="left")
+        self.theme_menu.pack(side="left", padx=8)
         self.restart_btn = ctk.CTkButton(
-            theme_row, text="Restart now", width=110, font=FONT_SMALL,
+            r, text="Restart now", width=110, font=FONT_SMALL,
             command=self._restart_launcher)
-        ctk.CTkLabel(frame, text="Pick from 20 looks - saves instantly, "
-                                 "applies on next launch",
-                     font=FONT_SMALL, text_color=("gray60", "gray60")).grid(
-            row=21, column=1, sticky="w", padx=8)
+        hint(look, "Black or White - saves instantly, applies on next "
+                   "launch.")
 
-        ctk.CTkLabel(frame, text="Updates", font=FONT).grid(
-            row=22, column=0, sticky="w", padx=(12, 12), pady=(24, 8))
-        upd_row = ctk.CTkFrame(frame, fg_color="transparent")
-        upd_row.grid(row=22, column=1, sticky="w", padx=8, pady=(24, 8))
+        # ---- Updates ----------------------------------------------------
+        upd = self._form_card("Updates", parent=scroll)
+        upd_row = ctk.CTkFrame(upd, fg_color="transparent")
+        upd_row.pack(fill="x", padx=12, pady=(6, 0))
         self.update_btn = ctk.CTkButton(
             upd_row, text="Check for updates", width=150, font=FONT,
             command=self._check_update)
         self.update_btn.pack(side="left")
         ctk.CTkLabel(upd_row, text=f"v{config.APP_VERSION} installed",
                      font=FONT_SMALL,
-                     text_color=("gray60", "gray60")).pack(side="left",
+                     text_color=("gray35", "gray60")).pack(side="left",
                                                            padx=10)
         self.update_restart_btn = ctk.CTkButton(
             upd_row, text="Restart now", width=110, font=FONT_SMALL,
             command=self._restart_launcher)
         self.update_status = ctk.CTkLabel(
-            frame, text="", font=FONT_SMALL, text_color=("gray60", "gray60"))
-        self.update_status.grid(row=23, column=1, sticky="w", padx=8)
+            upd, text="", font=FONT_SMALL, text_color=("gray35", "gray60"))
+        self.update_status.pack(anchor="w", padx=12, pady=(0, 10))
 
-        ctk.CTkLabel(frame, text="Install location", font=FONT).grid(
-            row=24, column=0, sticky="w", padx=(12, 12), pady=8)
-        loc_row = ctk.CTkFrame(frame, fg_color="transparent")
-        loc_row.grid(row=24, column=1, sticky="w", padx=8, pady=8)
+        # ---- About ------------------------------------------------------
+        about = self._form_card("About", parent=scroll)
+        loc_row = ctk.CTkFrame(about, fg_color="transparent")
+        loc_row.pack(fill="x", padx=12, pady=(6, 10))
+        ctk.CTkLabel(loc_row, text="Install location", font=FONT,
+                     width=LABEL_W, anchor="w").pack(side="left")
         ctk.CTkLabel(loc_row, text=str(config.INSTALL_DIR),
                      font=FONT_SMALL,
-                     text_color=("gray60", "gray60")).pack(side="left")
+                     text_color=("gray35", "gray60")).pack(side="left")
         ctk.CTkButton(loc_row, text="Open folder", width=100,
                       font=FONT_SMALL,
                       command=lambda: os.startfile(config.INSTALL_DIR)
                       ).pack(side="left", padx=10)
+
+        # ---- Save (bottom right) ----------------------------------------
+        bottom = ctk.CTkFrame(scroll, fg_color="transparent")
+        bottom.pack(fill="x", pady=8)
+        self.save_status = ctk.CTkLabel(
+            bottom, text="", font=FONT_SMALL,
+            text_color=("#1a7f37", "#25a34a"))
+        self.save_status.pack(side="right", padx=8)
+        self.save_btn = ctk.CTkButton(
+            bottom, text="Save settings", font=FONT_BOLD, height=36,
+            width=140, command=self._save_settings)
+        self.save_btn.pack(side="right", padx=8)
 
         def detect_java():
             self._java_major = core.java_major_version(
@@ -2938,7 +2943,7 @@ class LauncherApp(ctk.CTk):
             badge = {"release": "", "snapshot": " [snapshot]"}.get(v["type"], f" [{v['type']}]")
             btn = ctk.CTkButton(
                 self.version_scroll, text=vid + badge, anchor="w",
-                fg_color="transparent", text_color=("gray85", "gray85"),
+                fg_color="transparent", text_color=("gray15", "gray85"),
                 hover_color=PALETTE["nav"], font=FONT,
                 command=lambda vid=vid: self._select_version(vid),
             )
@@ -2963,7 +2968,7 @@ class LauncherApp(ctk.CTk):
         prev = getattr(self, "_highlighted_version", None)
         if prev and prev != vid and prev in self.version_buttons:
             self.version_buttons[prev].configure(
-                fg_color="transparent", text_color=("gray85", "gray85"))
+                fg_color="transparent", text_color=("gray15", "gray85"))
         if vid in self.version_buttons:
             self.version_buttons[vid].configure(
                 fg_color=("#2f6fed", "#1f5fd0"), text_color="white")
@@ -3049,7 +3054,7 @@ class LauncherApp(ctk.CTk):
             child.destroy()
         if not self.accounts:
             ctk.CTkLabel(self.accounts_scroll, text="No accounts yet - click '+ Add Microsoft Account'",
-                         font=FONT, text_color=("gray60", "gray60")).pack(pady=20)
+                         font=FONT, text_color=("gray35", "gray60")).pack(pady=20)
             return
         for account in self.accounts:
             row = ctk.CTkFrame(self.accounts_scroll, fg_color=PALETTE["card"])
@@ -3393,7 +3398,7 @@ class LauncherApp(ctk.CTk):
             text = "Couldn't pinpoint the cause from the log."
         ctk.CTkLabel(dlg, text=text, font=FONT, anchor="w",
                      justify="left", wraplength=520,
-                     text_color=("#ffb04a", "#ffb04a") if findings else ("gray60", "gray60")
+                     text_color=("#ffb04a", "#ffb04a") if findings else ("gray35", "gray60")
                      ).grid(row=1, column=0, sticky="w", padx=16, pady=(0, 6))
 
         log_box = ctk.CTkTextbox(dlg, font=FONT_SMALL, wrap="none")
@@ -3585,35 +3590,34 @@ class LauncherApp(ctk.CTk):
             self.settings_vars["game_dir"].set(directory)
 
     def _apply_jvm_preset(self, choice):
-        if choice == "Custom":
-            return
+        args = JVM_PRESETS[choice]
         if choice == ZGC_PRESET:
             major = self._java_major
             if major is not None and major < 21:
                 messagebox.showwarning(
                     "Java too old",
                     "ZGC needs Java 21 or newer. "
-                    "Your detected Java is older - pick another preset or update Java.")
-                self.jvm_preset_menu.set("Custom")
+                    "Your detected Java is older - pick another preset "
+                    "or update Java.")
+                cur = str(self.settings.get("jvm_arguments", ""))
+                prev = next((n for n, a in JVM_PRESETS.items()
+                             if a == cur), "Standard (recommended)")
+                self.jvm_preset_menu.set(prev)
                 return
-            args = JVM_PRESETS[choice]
-            # -XX:+ZGenerational only exists on Java 21-22; it's default on 23+
-            # and was removed entirely in 24/25 (startup error if passed)
+            # -XX:+ZGenerational only exists on Java 21-22; it's default
+            # on 23+ and was removed entirely in 24/25 (startup error if
+            # passed)
             if major is not None and major < 23:
                 args += " -XX:+ZGenerational"
-            self.settings_vars["jvm_arguments"].set(args)
-            return
-        self.settings_vars["jvm_arguments"].set(JVM_PRESETS[choice])
+        self.settings["jvm_arguments"] = args
+        self.settings["jvm_preset"] = choice
+        config.save_settings(self.settings)
+        self.save_status.configure(text="Preset applied")
+        self.after(1800, lambda: self.save_status.configure(text=""))
 
     def _save_settings(self):
         for key, var in self.settings_vars.items():
-            if key == "custom_resolution":
-                continue
             self.settings[key] = var.get()
-        self.settings["custom_resolution"] = self.custom_res_var.get()
-        self.settings["alert_sound"] = self.alert_sound_var.get()
-        preset = self.jvm_preset_menu.get()
-        self.settings["jvm_preset"] = preset if preset != "Custom" else ""
         config.save_settings(self.settings)
         self.save_status.configure(text="Saved")
         self.save_btn.configure(text="Saved ✓")
