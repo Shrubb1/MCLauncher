@@ -3803,6 +3803,10 @@ class LauncherApp(ctk.CTk):
                 data = chat.friends(token)
             except Exception:
                 return
+            latest = data.get("latest") or ""
+            if latest and config.version_newer(latest) \
+                    and latest != self._update_dismissed:
+                self.ui_call(self._show_update_banner, latest)
             incoming = data.get("incoming") or []
             unread, new_read = [], {}
             for f in data.get("friends") or []:

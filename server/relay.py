@@ -30,6 +30,40 @@ DB_PATH = Path(os.environ.get(
     "RELAY_DB", Path(__file__).resolve().parent / "relay.db"))
 _ITER = 200_000
 _RATE = {}  # name -> [send timestamps], in-memory flood throttle
+_GH_URL = ("https://api.github.com/repos/Shrubb1/MCLauncher/"
+           "contents/launcher/config.py?ref=master")
+_LATEST = {"ts": 0.0, "ver": ""}  # cached GitHub version lookup
+
+
+def _local_version():
+    vf = Path(os.environ.get(
+        "UPDATE_VERSION",
+        Path(__file__).resolve().parent / "version.txt"))
+    return vf.read_text().strip() if vf.is_file() else ""
+
+
+def _latest_version():
+    """Newest released version from GitHub, cached 60s.
+
+    Falls back to the bundled version.txt so clients still learn about
+    updates even if GitHub is unreachable."""
+    if time.time() - _LATEST["ts"] < 60:
+        return _LATEST["ver"]
+    ver = ""
+    try:
+        req = urllib.request.Request(
+            _GH_URL, headers={"Accept": "application/vnd.github.raw",
+                              "User-Agent": "mclauncher-relay"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
+                          r.read().decode("utf-8", "replace"))
+            if m:
+                ver = m.group(1)
+    except Exception:
+        pass
+    _LATEST["ver"] = ver or _local_version()
+    _LATEST["ts"] = time.time()
+    return _LATEST["ver"]
 
 
 def _db():
@@ -305,7 +339,8 @@ def handle(db, method, path, body):
                 inc.append(r["user"])
         return {"friends": sorted(acc, key=str.lower),
                 "outgoing": sorted(out, key=str.lower),
-                "incoming": sorted(inc, key=str.lower)}
+                "incoming": sorted(inc, key=str.lower),
+                "latest": _latest_version()}
 
     if path == "/friends/add":
         other = (body.get("friend") or "").strip()
