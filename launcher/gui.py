@@ -201,6 +201,18 @@ class LauncherApp(ctk.CTk):
                      lambda e, n=name: self._sync_badge_bg(n), add="+")
             self.nav_buttons[name] = btn
 
+        # sliding accent bar beside the active nav button
+        self._nav_indicator = ctk.CTkFrame(
+            sidebar, width=4, height=26, corner_radius=2,
+            fg_color=PALETTE["accent"])
+        self._nav_ind_y = None
+        self._nav_ind_job = None
+
+        # Ctrl+1..8 page shortcuts
+        for i, n in enumerate(self.nav_buttons, 1):
+            self.bind_all(f"<Control-Key-{i}>",
+                          lambda e, n=n: self._show_page(n))
+
         self.version_label = ctk.CTkLabel(
             sidebar, text=f"v{config.APP_VERSION}", font=FONT_SMALL,
             text_color=PALETTE["muted_hover"])
@@ -247,6 +259,63 @@ class LauncherApp(ctk.CTk):
                                                       text_color=("gray20", "gray80"))
         for n in self.nav_buttons:
             self._sync_badge_bg(n)
+        self._slide_nav_indicator(name)
+
+    def _slide_nav_indicator(self, name):
+        """Animate the accent bar to the active nav button."""
+        btn = self.nav_buttons.get(name)
+        if btn is None or getattr(self, "_nav_indicator", None) is None:
+            return
+
+        def place_steps():
+            try:
+                target = btn.winfo_y() + (btn.winfo_height() - 26) / 2
+            except Exception:
+                return
+            if target <= 0:
+                return
+            start = self._nav_ind_y
+            if start is None:
+                self._nav_ind_y = target
+                self._nav_indicator.place(x=4, y=target)
+                return
+            steps, delta = 7, (target - start) / 7
+            if getattr(self, "_nav_ind_job", None):
+                self.after_cancel(self._nav_ind_job)
+                self._nav_ind_job = None
+
+            def tick(i):
+                self._nav_ind_y = start + delta * i
+                self._nav_indicator.place(x=4, y=self._nav_ind_y)
+                if i < steps:
+                    self._nav_ind_job = self.after(14,
+                                                 lambda: tick(i + 1))
+
+            tick(1)
+        self.after(40, place_steps)
+
+    def _row_hoverable(self, row, action=None, event="<Button-1>"):
+        """Subtle hover highlight on a row + optional click-through.
+        Buttons keep their own behaviour (no click hijack)."""
+        def rec(w):
+            is_btn = isinstance(w, ctk.CTkButton)
+            w.bind("<Enter>",
+                   lambda e: row.configure(fg_color=PALETTE["muted"]),
+                   add="+")
+            w.bind("<Leave>",
+                   lambda e: row.configure(fg_color="transparent"),
+                   add="+")
+            if action and not is_btn:
+                w.bind(event, lambda e: action())
+                try:
+                    w.configure(cursor="hand2")
+                except Exception:
+                    pass
+            if is_btn:
+                return
+            for c in w.winfo_children():
+                rec(c)
+        rec(row)
 
     # ------------------------------------------------------------- Home page
 
@@ -374,6 +443,12 @@ class LauncherApp(ctk.CTk):
         for inst in ordered:
             card = ctk.CTkFrame(self.instances_scroll, fg_color=PALETTE["card"])
             card.pack(fill="x", pady=4, padx=4)
+            card.configure(cursor="hand2")
+            self.after_idle(
+                lambda c=card, i=inst: c.winfo_exists() and
+                self._row_hoverable(
+                    c, action=lambda: self._instance_play(i),
+                    event="<Double-Button-1>"))
 
             info = ctk.CTkFrame(card, fg_color="transparent")
             info.pack(side="left", padx=12, pady=10, fill="x", expand=True)
@@ -2316,6 +2391,8 @@ class LauncherApp(ctk.CTk):
                 r, text="Chat", width=70, font=FONT_SMALL,
                 command=lambda n=name: self._open_chat(token, n)
                 ).pack(side="right", padx=(0, 6))
+            self._row_hoverable(
+                r, action=lambda n=name: self._open_chat(token, n))
 
     def _friend_add(self, token, name):
         def work():
