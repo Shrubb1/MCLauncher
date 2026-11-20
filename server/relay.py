@@ -45,13 +45,6 @@ def _local_version():
     return vf.read_text().strip() if vf.is_file() else ""
 
 
-def _ver_newer(a: str, b: str) -> str:
-    """Whichever of two version strings is newer (a on tie)."""
-    ka = [int(x) for x in re.findall(r"\d+", a or "")[:3]]
-    kb = [int(x) for x in re.findall(r"\d+", b or "")[:3]]
-    return a if (ka + [0, 0, 0])[:3] >= (kb + [0, 0, 0])[:3] else b
-
-
 def _latest_version():
     """Newest released version, cached 60s.
 
@@ -72,7 +65,10 @@ def _latest_version():
                 ver = m.group(1)
     except Exception:
         pass
-    _LATEST["ver"] = _ver_newer(_local_version(), ver)
+    # Bundled version wins: it always matches the zip /update.zip serves.
+    # Reporting a GitHub version newer than the bundled zip would send
+    # clients into an update loop installing the older payload.
+    _LATEST["ver"] = _local_version() or ver
     _LATEST["ts"] = time.time()
     return _LATEST["ver"]
 
