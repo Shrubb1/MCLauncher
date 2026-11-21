@@ -31,12 +31,14 @@ public final class Navigator {
     /** positions where we got stuck - fed back into repaths so the
      * next plan pays extra to route near them */
     private static final List<BlockPos> stuckSpots = new ArrayList<>();
+    /** when path == null but goal != null: retry planning at this time */
+    private static long retryAt;
 
     private Navigator() {
     }
 
     public static boolean active() {
-        return path != null;
+        return goal != null;
     }
 
     public static void start(BlockPos target) {
@@ -47,14 +49,16 @@ public final class Navigator {
         goal = target;
         repaths = 0;
         nodesDone = 0;
+        retryAt = 0;
         stuckSpots.clear();
         plan(mc, true);
     }
 
     public static void cancel(String why) {
-        if (path == null) {
+        if (goal == null) {
             return;
         }
+        goal = null;
         path = null;
         release(MinecraftClient.getInstance());
         say(why);
@@ -67,7 +71,8 @@ public final class Navigator {
         if (found == null) {
             path = null;
             release(mc);
-            say("§c[path] no route to " + shortPos(goal));
+            retryAt = System.currentTimeMillis() + 4000;
+            say("§c[path] can't find a way forward - retrying");
             return;
         }
         path = found;
@@ -87,7 +92,14 @@ public final class Navigator {
 
     /** Called every player tick while the pro tier is enabled. */
     public static void tick(MinecraftClient mc) {
-        if (path == null || mc.player == null || mc.world == null) {
+        if (goal == null || mc.player == null || mc.world == null) {
+            return;
+        }
+        if (path == null) {
+            // between attempts: wait for the backoff, then replan
+            if (System.currentTimeMillis() >= retryAt) {
+                plan(mc, false);
+            }
             return;
         }
         ClientPlayerEntity p = mc.player;
@@ -192,17 +204,30 @@ public final class Navigator {
         if (stuckSpots.size() > 8) {
             stuckSpots.remove(0);
         }
-        if (++repaths > 3) {
-            cancel("§c[path] stuck - giving up");
-            return;
-        }
-        plan(mc, false);
+        repaths++;
+        path = null;
+        release(mc);
+        // never give up - escalating backoff so repeated failures at
+        // the same spot don't spin the pathfinder every tick
+        retryAt = System.currentTimeMillis()
+                + Math.min(5000, 500 + repaths * 500L);
+        say("§c[path] stuck - retrying (attempt " + repaths + ")");
     }
 
     private static void finish(MinecraftClient mc) {
         path = null;
+        double dx = goal.getX() + 0.5 - mc.player.getX();
+        double dz = goal.getZ() + 0.5 - mc.player.getZ();
+        // end of a partial (waypoint) path, not the goal itself:
+        // replan immediately and keep marching
+        if (Math.hypot(dx, dz) > 2.5) {
+            say("§7[path] waypoint reached - replanning");
+            plan(mc, false);
+            return;
+        }
         release(mc);
         say("§7[path] arrived at " + shortPos(goal));
+        goal = null;
     }
 
     private static void release(MinecraftClient mc) {

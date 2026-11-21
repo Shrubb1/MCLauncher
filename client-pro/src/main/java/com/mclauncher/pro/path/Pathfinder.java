@@ -110,12 +110,26 @@ final class Pathfinder {
                         goal.getX(), goal.getY(), goal.getZ()), null);
         open.add(s0);
         best.put(key(s0.x, s0.y, s0.z), 0.0);
+        // budget scales with straight-line distance: far goals need a
+        // wider search before it's fair to say "can't get closer"
+        int maxIter = Math.min(300000, Math.max(MAX_ITER,
+                (int) (heur(start.getX(), start.getY(), start.getZ(),
+                        goal.getX(), goal.getY(), goal.getZ()) * 400)));
+        // closest-to-goal node seen: if the full route doesn't fit in
+        // the budget, march to this and let the navigator replan
+        Node bestNode = s0;
+        double bestH = s0.f - s0.g;
         int iter = 0;
-        while (!open.isEmpty() && iter++ < MAX_ITER) {
+        while (!open.isEmpty() && iter++ < maxIter) {
             Node n = open.poll();
             long nk = key(n.x, n.y, n.z);
             if (!closed.add(nk)) {
                 continue;
+            }
+            double h = n.f - n.g;
+            if (h < bestH) {
+                bestH = h;
+                bestNode = n;
             }
             if (n.x == goal.getX() && n.z == goal.getZ()
                     && Math.abs(n.y - goal.getY()) <= 1) {
@@ -172,6 +186,15 @@ final class Pathfinder {
                             best);
                 }
             }
+        }
+        // no full route - return the best partial path so the walker
+        // still makes progress toward the goal and replans from there
+        if (bestNode != s0) {
+            ArrayDeque<BlockPos> out = new ArrayDeque<>();
+            for (Node c = bestNode; c != null; c = c.parent) {
+                out.addFirst(new BlockPos(c.x, c.y, c.z));
+            }
+            return new ArrayList<>(out);
         }
         return null;
     }
