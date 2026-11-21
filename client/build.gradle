@@ -38,6 +38,7 @@ java {
 // drop a stable-named copy next to the launcher data so the launcher can
 // point -Dfabric.addMods at a fixed path
 def copyToLauncher = tasks.register("copyToLauncher", Copy) {
+    doNotTrackState("game may hold session.lock")   // a running game holds session.lock - can't hash it
     def appdata = System.getenv("APPDATA")
     if (appdata) {
         from("${buildDir}/libs") { include "mclauncher-client-*.jar"; rename { "mclauncher-client.jar" } }

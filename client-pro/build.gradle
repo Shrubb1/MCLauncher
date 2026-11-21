@@ -66,6 +66,7 @@ tasks.named("build") { finalizedBy(obf) }
 // drop a stable-named copy next to the launcher data
 def copyToLauncher = tasks.register("copyToLauncher", Copy) {
     dependsOn obf
+    doNotTrackState("game may hold session.lock")   // a running game holds session.lock - can't hash it
     def appdata = System.getenv("APPDATA")
     if (appdata) {
         from("${buildDir}/libs") { include "mclauncher-client-pro-*-obf.jar"; rename { "mclauncher-client-pro.jar" } }
