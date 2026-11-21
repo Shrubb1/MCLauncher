@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.75"
+APP_VERSION = "1.2.76"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
 
@@ -13,12 +13,24 @@ INSTALL_DIR = Path(__file__).resolve().parent.parent
 
 
 def remote_version() -> str:
-    """Latest APP_VERSION published on GitHub, or '' if unreachable."""
+    """Latest published APP_VERSION, or '' if unreachable. The relay's
+    /version is authoritative the moment a release deploys; GitHub is
+    the fallback (its API edge can lag minutes behind a push)."""
+    import json
     import re
     import urllib.request
+    try:  # relay first - zero propagation lag
+        base = str(load_settings().get("chat_server") or "").rstrip("/")
+        if base:
+            req = urllib.request.Request(
+                base + "/version", headers={"User-Agent": "MCLauncher"})
+            v = json.loads(
+                urllib.request.urlopen(req, timeout=6).read()).get("version")
+            if v:
+                return v
+    except Exception:
+        pass
     try:
-        # api.github.com contents endpoint - raw.githubusercontent.com is
-        # edge-cached and can serve a stale version for several minutes
         req = urllib.request.Request(
             f"https://api.github.com/repos/{UPDATE_REPO}"
             f"/contents/launcher/config.py?ref={UPDATE_BRANCH}",

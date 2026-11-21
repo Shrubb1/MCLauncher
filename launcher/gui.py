@@ -4825,9 +4825,9 @@ class LauncherApp(ctk.CTk):
     # --------------------------------------------- update notifications
 
     def _update_check(self):
-        """Ask GitHub for the latest version; banner if newer. Rechecks
-        every 30 min while running."""
-        self.after(1800000, self._update_check)
+        """Poll for the latest version; banner if newer. Rechecks
+        every 5 min while running."""
+        self.after(300000, self._update_check)
 
         def work():
             remote = config.remote_version()
