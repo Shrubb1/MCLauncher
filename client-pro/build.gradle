@@ -41,6 +41,83 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+// ProGuard's class pool needs a JDK's jmods or preverify can't resolve
+// java.lang.Object when javac shares a local slot between unrelated
+// reference types. Find a JDK anywhere on the machine; if nothing has
+// jmods, download Temurin 21 once into .jdk21/ and use that.
+def findJmods = {
+    def homes = [System.getProperty("java.home"),
+                 System.getenv("JAVA_HOME")]
+    try { // the java on PATH may live somewhere we didn't scan
+        def p = ["java", "-XshowSettings:properties", "-version"].execute()
+        def err = p.err.text // drain BEFORE waitFor - a full pipe
+                         // buffer deadlocks the child on write
+        p.waitFor()
+        def m = (err =~ /java\.home = (.+)/)
+        if (m.find()) homes << m.group(1).trim()
+    } catch (ignored) {
+    }
+    ["C:/Program Files/Eclipse Adoptium", "C:/Program Files/Java",
+     "C:/Program Files/Microsoft", "C:/Program Files/Amazon Corretto",
+     "C:/Program Files/Zulu",
+     "${System.getProperty('user.home')}/.jdks",
+     "${System.getProperty('user.home')}/jdk",
+    ].each { root ->
+        def r = new File(root)
+        if (r.isDirectory()) {
+            r.eachDir { d -> homes << d.absolutePath }
+        }
+    }
+    homes.findAll { it != null }
+         .collect { new File(it, "jmods") }
+         .findAll { new File(it, "java.base.jmod").isFile() }
+         .collectMany { it.listFiles().findAll {
+             f -> f.name.endsWith(".jmod") } }
+}
+
+def provisionJmods = { File workDir ->
+    def jmods = findJmods()
+    if (!jmods.isEmpty()) {
+        return jmods
+    }
+    // no JDK with jmods anywhere - fetch Temurin 21 once, cache it
+    def os = System.getProperty("os.name").toLowerCase()
+    def arch = System.getProperty("os.arch").toLowerCase()
+    def plat = os.contains("win") ? "windows"
+            : os.contains("mac") ? "mac" : "linux"
+    def cpu = arch.contains("aarch64") || arch.contains("arm")
+            ? "aarch64" : "x64"
+    def url = "https://api.adoptium.net/v3/binary/latest/21/ga/" +
+            "${plat}/${cpu}/jdk/hotspot/normal/eclipse"
+    def cacheRoot = new File(workDir, ".jdk21")
+    def cached = cacheRoot.listFiles()?.find {
+        new File(it, "jmods/java.base.jmod").isFile()
+    }
+    if (cached == null) {
+        def archive = new File(workDir, "build/temurin21" +
+                (plat == "windows" ? ".zip" : ".tar.gz"))
+        archive.parentFile.mkdirs()
+        println "obfuscate: no local JDK has jmods - " +
+                "downloading Temurin 21 (one-time)"
+        ant.get(src: url, dest: archive, skipexisting: true)
+        copy {
+            plat == "windows" ? from(zipTree(archive))
+                    : from(tarTree(resources.gzip(archive)))
+            into(cacheRoot)
+        }
+        cached = cacheRoot.listFiles()?.find {
+            new File(it, "jmods/java.base.jmod").isFile()
+        }
+    }
+    if (cached == null) {
+        throw new GradleException("obfuscate: couldn't provision a " +
+                "JDK with jmods - set JAVA_HOME to a full JDK install")
+    }
+    new File(cached, "jmods").listFiles().findAll {
+        it.name.endsWith(".jmod")
+    }
+}
+
 // obfuscate the remapped jar: keeps the entrypoint + mixin names that
 // jsons reference, renames everything else
 def obf = tasks.register("obfuscate", JavaExec) {
@@ -56,21 +133,8 @@ def obf = tasks.register("obfuscate", JavaExec) {
     doFirst {
         def libjars = (sourceSets.main.compileClasspath.files
                 + sourceSets.main.runtimeClasspath.files)
-        // modular JDK has no rt.jar - the class pool needs jmods or
-        // preverify can't find java.lang.Object when it generalizes a
-        // local slot shared by two unrelated reference types. The JDK
-        // on PATH is a stripped image with no jmods, so borrow them
-        // from any installed JDK that has them (bytecode target is 21).
-        def jmodDirs = [new File(System.getProperty("java.home"), "jmods")]
-        def adoptium = new File("C:/Program Files/Eclipse Adoptium")
-        if (adoptium.isDirectory()) {
-            adoptium.eachDir { d -> jmodDirs << new File(d, "jmods") }
-        }
-        jmodDirs.findAll { it.isDirectory() }.each { jm ->
-            libjars += jm.listFiles().findAll {
-                it.name.endsWith(".jmod")
-            }
-        }
+        // modular JDK has no rt.jar - find jmods anywhere, or download
+        libjars += provisionJmods(rootDir)
         args = ["-injars", injar.path, "-outjars", outjar.path,
                 "-libraryjars", libjars.join(File.pathSeparator),
                 "@${rootDir}/proguard.conf"]
