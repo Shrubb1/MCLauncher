@@ -1,5 +1,6 @@
 package com.mclauncher.client.mixin;
 
+import com.mclauncher.client.ClientMod;
 import com.mclauncher.client.ConfigScreen;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
@@ -20,7 +21,8 @@ public class KeyboardMixin {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (action == GLFW.GLFW_PRESS && mc.currentScreen == null
                 && mc.player != null
-                && input.key() == GLFW.GLFW_KEY_RIGHT_SHIFT) {
+                && input.key() == GLFW.GLFW_KEY_RIGHT_SHIFT
+                && (ClientMod.state == null || !ClientMod.state.navActive)) {
             mc.setScreen(new ConfigScreen());
         }
     }

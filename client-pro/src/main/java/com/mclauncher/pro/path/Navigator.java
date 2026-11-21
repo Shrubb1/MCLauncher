@@ -53,6 +53,7 @@ public final class Navigator {
             return;
         }
         goal = target;
+        nav(true);
         repaths = 0;
         nodesDone = 0;
         retryAt = 0;
@@ -67,6 +68,7 @@ public final class Navigator {
             return;
         }
         goal = null;
+        nav(false);
         path = null;
         release(MinecraftClient.getInstance());
         say(why);
@@ -89,6 +91,7 @@ public final class Navigator {
             // no route out and retrying forever is pointless
             if (new Pathfinder(mc.world).enclosed(feet, 500)) {
                 goal = null;
+                nav(false);
                 say("§c[path] enclosed - no way out, stopping");
                 return;
             }
@@ -120,6 +123,12 @@ public final class Navigator {
     /** Called every player tick while the pro tier is enabled. */
     public static void tick(MinecraftClient mc) {
         if (goal == null || mc.player == null || mc.world == null) {
+            return;
+        }
+        // any open screen (chat, inventory, pause) = pause: hands off
+        // the keys until it closes, then pick up where we left off
+        if (mc.currentScreen != null) {
+            release(mc);
             return;
         }
         if (path == null) {
@@ -329,6 +338,7 @@ public final class Navigator {
                 && new Pathfinder(mc.world)
                         .enclosed(mc.player.getBlockPos(), 500)) {
             goal = null;
+            nav(false);
             say("§c[path] enclosed - no way out, stopping");
             return;
         }
@@ -364,6 +374,15 @@ public final class Navigator {
         release(mc);
         say("§7[path] arrived at " + shortPos(goal));
         goal = null;
+        nav(false);
+    }
+
+    /** Tells the free mod a bot task owns the controls, so Right Shift
+     * stops the task instead of opening the config screen. */
+    private static void nav(boolean on) {
+        if (ClientMod.state != null) {
+            ClientMod.state.navActive = on;
+        }
     }
 
     private static void release(MinecraftClient mc) {

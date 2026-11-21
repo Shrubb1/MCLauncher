@@ -2,6 +2,7 @@ package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
+import com.mclauncher.pro.path.Navigator;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.input.KeyInput;
@@ -35,6 +36,9 @@ public class KeyboardMixin {
             }
         }
         if (action == GLFW.GLFW_PRESS && mc.player != null) {
+            if (key == GLFW.GLFW_KEY_RIGHT_SHIFT && Navigator.active()) {
+                Navigator.cancel("§7[path] stopped");
+            }
             if (key == GLFW.GLFW_KEY_GRAVE_ACCENT
                     && ClientMod.settings.on("sprint")) {
                 ClientMod.state.sprintToggled =

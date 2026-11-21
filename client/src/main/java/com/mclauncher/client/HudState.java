@@ -12,6 +12,9 @@ public class HudState {
     public boolean zooming;
     public boolean sprintToggled;
     public boolean sneakToggled;
+    /** A bot task (pro navigator) is running - Right Shift stops it
+     * instead of opening the config screen */
+    public boolean navActive;
 
     public void click(int button) {
         long now = System.currentTimeMillis();
