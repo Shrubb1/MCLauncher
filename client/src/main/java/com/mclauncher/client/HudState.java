@@ -12,9 +12,14 @@ public class HudState {
     public boolean zooming;
     public boolean sprintToggled;
     public boolean sneakToggled;
-    /** A bot task (pro navigator) is running - Right Shift stops it
-     * instead of opening the config screen */
+    /** A bot task (pro navigator/miner/route) is running - Right Shift
+     * stops it instead of opening the config screen */
     public boolean navActive;
+    /** Pro hooks the config screen's route button through this - the
+     * free mod can't compile-depend on pro classes */
+    public Runnable routeAction;
+    /** A mining route loop is running - drives the button label */
+    public boolean routeActive;
 
     public void click(int button) {
         long now = System.currentTimeMillis();

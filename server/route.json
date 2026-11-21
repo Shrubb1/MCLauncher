@@ -1,0 +1,9 @@
+{
+  "name": "Example Mine Loop",
+  "ore": "diamond_ore",
+  "spots": [
+    {"x": 0, "y": 64, "z": 0, "seconds": 10},
+    {"x": 32, "y": 64, "z": 0, "seconds": 10},
+    {"x": 32, "y": 64, "z": 32, "seconds": 10}
+  ]
+}

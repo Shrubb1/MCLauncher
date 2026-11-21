@@ -56,6 +56,21 @@ def obf = tasks.register("obfuscate", JavaExec) {
     doFirst {
         def libjars = (sourceSets.main.compileClasspath.files
                 + sourceSets.main.runtimeClasspath.files)
+        // modular JDK has no rt.jar - the class pool needs jmods or
+        // preverify can't find java.lang.Object when it generalizes a
+        // local slot shared by two unrelated reference types. The JDK
+        // on PATH is a stripped image with no jmods, so borrow them
+        // from any installed JDK that has them (bytecode target is 21).
+        def jmodDirs = [new File(System.getProperty("java.home"), "jmods")]
+        def adoptium = new File("C:/Program Files/Eclipse Adoptium")
+        if (adoptium.isDirectory()) {
+            adoptium.eachDir { d -> jmodDirs << new File(d, "jmods") }
+        }
+        jmodDirs.findAll { it.isDirectory() }.each { jm ->
+            libjars += jm.listFiles().findAll {
+                it.name.endsWith(".jmod")
+            }
+        }
         args = ["-injars", injar.path, "-outjars", outjar.path,
                 "-libraryjars", libjars.join(File.pathSeparator),
                 "@${rootDir}/proguard.conf"]

@@ -205,6 +205,17 @@ def handle(db, method, path, body):
             "SELECT value FROM cfg WHERE key='checkout_url'").fetchone()
         return {"checkout_url": row["value"] if row else ""}
 
+    if method == "GET" and path == "/route":
+        rf = Path(os.environ.get(
+            "ROUTE_FILE",
+            Path(__file__).resolve().parent / "route.json"))
+        if not rf.is_file():
+            return {"error": "no route configured"}, 404
+        try:
+            return json.loads(rf.read_text())
+        except Exception:
+            return {"error": "route file is not valid json"}, 500
+
     if method == "GET" and path == "/version":
         vf = Path(os.environ.get(
             "UPDATE_VERSION",

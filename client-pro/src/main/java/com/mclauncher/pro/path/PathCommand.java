@@ -82,6 +82,14 @@ public final class PathCommand {
                     Miner.start(a[1]);
                 }
             }
+            case "route" -> {
+                if (a.length >= 2 && (a[1].equalsIgnoreCase("stop")
+                        || a[1].equalsIgnoreCase("off"))) {
+                    RouteRunner.cancel("§7[route] stopped");
+                } else {
+                    RouteRunner.start();
+                }
+            }
             case "stop", "cancel" -> Navigator.cancel("§7[path] cancelled");
             case "help", "path" -> usage();
             default -> usage();

@@ -37,9 +37,27 @@ public class ConfigScreen extends Screen {
                     .dimensions(10, y, 110, 18).build());
             y += 22;
         }
+        addDrawableChild(ButtonWidget.builder(
+                        Text.literal(routeLabel()), b -> runRoute(b))
+                .dimensions(10, y, 110, 18).build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"),
                         b -> close())
-                .dimensions(10, y + 6, 110, 20).build());
+                .dimensions(10, y + 24, 110, 20).build());
+    }
+
+    private static String routeLabel() {
+        if (ClientMod.state == null || ClientMod.state.routeAction == null) {
+            return "mining route: pro only";
+        }
+        return "mining route: "
+                + (ClientMod.state.routeActive ? "RUNNING" : "start");
+    }
+
+    private void runRoute(ButtonWidget b) {
+        if (ClientMod.state != null && ClientMod.state.routeAction != null) {
+            ClientMod.state.routeAction.run();
+            b.setMessage(Text.literal(routeLabel()));
+        }
     }
 
     private String label(String id) {

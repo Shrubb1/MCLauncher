@@ -4,6 +4,7 @@ import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
 import com.mclauncher.pro.path.Miner;
 import com.mclauncher.pro.path.Navigator;
+import com.mclauncher.pro.path.RouteRunner;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.input.KeyInput;
@@ -29,7 +30,9 @@ public class KeyboardMixin {
         // shouldn't require closing the screen first to end it
         if (action == GLFW.GLFW_PRESS
                 && key == GLFW.GLFW_KEY_RIGHT_SHIFT) {
-            if (Navigator.active()) {
+            if (RouteRunner.active()) {
+                RouteRunner.cancel("§7[route] stopped");
+            } else if (Navigator.active()) {
                 Navigator.cancel("§7[path] stopped");
             } else if (Miner.active()) {
                 Miner.cancel("§7[mine] stopped");
