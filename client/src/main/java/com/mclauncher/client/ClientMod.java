@@ -3,6 +3,7 @@ package com.mclauncher.client;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
@@ -58,8 +59,8 @@ public class ClientMod implements ClientModInitializer {
         HudRenderer.render(ctx, mc, settings, state);
     }
 
-    /** First world frame: if activation.json carries a launcher version
-     * we haven't announced yet, say so in chat once and remember it. */
+    /** First world frame: print who you're playing as and which tier
+     * is active, then announce a fresh launcher version once. */
     private static void checkUpdateNotice(MinecraftClient mc) {
         try {
             Path f = ClientSettings.file().getParent()
@@ -71,6 +72,26 @@ public class ClientMod implements ClientModInitializer {
             try (Reader r = Files.newBufferedReader(f)) {
                 root = JsonParser.parseReader(r).getAsJsonObject();
             }
+            String who = mc.getSession() != null
+                    ? mc.getSession().getUsername() : "?";
+            boolean activated = false;
+            if (root.has("enabled") && root.get("enabled").getAsBoolean()
+                    && root.has("names")) {
+                for (var e : root.getAsJsonArray("names")) {
+                    if (who.equalsIgnoreCase(e.getAsString())) {
+                        activated = true;
+                        break;
+                    }
+                }
+            }
+            boolean proLoaded = FabricLoader.getInstance()
+                    .isModLoaded("mclauncher-client-pro");
+            String tier = proLoaded
+                    ? (activated ? "§aPRO activated"
+                                 : "§efree §7- pro not activated")
+                    : "§7free version";
+            mc.player.sendMessage(Text.literal(
+                    "§6MCLauncher §7» §f" + who + " §7- " + tier), false);
             String ver = root.has("version")
                     ? root.get("version").getAsString() : "";
             if (ver.isEmpty() || ver.equals(settings.lastSeenVersion)) {
