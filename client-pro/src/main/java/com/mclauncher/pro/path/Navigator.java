@@ -37,6 +37,8 @@ public final class Navigator {
     private static final List<BlockPos> stuckSpots = new ArrayList<>();
     /** when path == null but goal != null: retry planning at this time */
     private static long retryAt;
+    /** goal distance at the last waypoint - detects fruitless marches */
+    private static double lastGoalDist;
 
     private Navigator() {
     }
@@ -55,6 +57,7 @@ public final class Navigator {
         nodesDone = 0;
         retryAt = 0;
         sincePlan = 0;
+        lastGoalDist = Double.MAX_VALUE;
         stuckSpots.clear();
         plan(mc, true);
     }
@@ -301,9 +304,20 @@ public final class Navigator {
         path = null;
         double dx = goal.getX() + 0.5 - mc.player.getX();
         double dz = goal.getZ() + 0.5 - mc.player.getZ();
+        double hdGoal = Math.hypot(dx, dz);
         // end of a partial (waypoint) path, not the goal itself:
-        // replan immediately and keep marching
-        if (Math.hypot(dx, dz) > 2.5) {
+        // replan immediately and keep marching - but if the march
+        // didn't actually get us closer, blacklist the endpoint so
+        // the next plan explores a different frontier instead of
+        // ping-ponging between the same two vantage points
+        if (hdGoal > 2.5) {
+            if (lastGoalDist - hdGoal < 1.0) {
+                stuckSpots.add(mc.player.getBlockPos());
+                if (stuckSpots.size() > 8) {
+                    stuckSpots.remove(0);
+                }
+            }
+            lastGoalDist = hdGoal;
             say("§7[path] waypoint reached - replanning");
             plan(mc, false);
             return;

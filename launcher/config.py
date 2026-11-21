@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 APP_NAME = "MCLauncher"
-APP_VERSION = "1.2.59"
+APP_VERSION = "1.2.60"
 UPDATE_REPO = "Shrubb1/MCLauncher"
 UPDATE_BRANCH = "master"
 
