@@ -189,13 +189,25 @@ public final class Navigator {
             }
         }
         double sdx = sx - p.getX(), sdz = sz - p.getZ();
+        double shd = Math.hypot(sdx, sdz);
 
-        // steer yaw toward the steer target at an error-scaled rate,
-        // then decompose motion into forward + strafe keys relative to
-        // facing error so we keep moving while turning
-        float want = (float) (Math.toDegrees(Math.atan2(sdz, sdx)) - 90.0);
-        p.setYaw(approach(p.getYaw(), want, 25f));
-        double err = Math.toRadians(wrap(want - p.getYaw()));
+        // bearing to the steer target relative to facing - the key
+        // decomposition uses this, so rear targets can be reached by
+        // back+strafe instead of a pirouette
+        double bearing = wrap((float) (Math.toDegrees(
+                Math.atan2(sdz, sdx)) - 90.0 - p.getYaw()));
+
+        // steer yaw toward the target at an error-scaled rate - but a
+        // target nearly underfoot has no stable bearing (atan2 of ~0
+        // jitters into a random direction every tick), and one directly
+        // behind within walking range is closer to shuffle back to than
+        // to spin for. Hold yaw in both cases; the keys do the work
+        if (shd > 0.3 && !(Math.abs(bearing) > 100 && shd < 4.0)) {
+            float want = (float) (Math.toDegrees(Math.atan2(sdz, sdx))
+                    - 90.0);
+            p.setYaw(approach(p.getYaw(), want, 25f));
+        }
+        double err = Math.toRadians(bearing);
         double fwd = Math.cos(err), strafe = Math.sin(err);
         mc.options.forwardKey.setPressed(fwd > 0.2);
         mc.options.backKey.setPressed(fwd < -0.2);
