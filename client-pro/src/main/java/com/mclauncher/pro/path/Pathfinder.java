@@ -80,6 +80,21 @@ final class Pathfinder {
                 .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
     }
 
+    private boolean waterAt(int x, int y, int z) {
+        return !world.getFluidState(new BlockPos(x, y, z)).isEmpty();
+    }
+
+    /** Feet inside water with head in water or air - a swim node. */
+    private boolean swimmable(int x, int y, int z) {
+        return waterAt(x, y, z)
+                && (waterAt(x, y + 1, z) || passable(x, y + 1, z));
+    }
+
+    /** Cell a diagonal move may pass: air or water. */
+    private boolean passCorner(int x, int y, int z) {
+        return passable(x, y, z) || swimmable(x, y, z);
+    }
+
     private static long key(int x, int y, int z) {
         return ((long) x & 0x3FFFFFF) | (((long) z & 0x3FFFFFF) << 26)
                 | (((long) y & 0xFFF) << 52);
@@ -179,11 +194,20 @@ final class Pathfinder {
                 sink.accept(x, y - 1, z, 1.0);
             }
         }
+        // in water: dive/rise within the column
+        if (waterAt(x, y, z)) {
+            if (swimmable(x, y + 1, z)) {
+                sink.accept(x, y + 1, z, 1.8);
+            }
+            if (swimmable(x, y - 1, z)) {
+                sink.accept(x, y - 1, z, 1.4);
+            }
+        }
         for (int[] d : DIRS) {
             boolean diag = d[0] != 0 && d[1] != 0;
             int tx = x + d[0], tz = z + d[1];
-            if (diag && !(passable(x + d[0], y, z)
-                    && passable(x, y, z + d[1]))) {
+            if (diag && !(passCorner(x + d[0], y, z)
+                    && passCorner(x, y, z + d[1]))) {
                 continue; // no corner cutting
             }
             double mul = diag ? 1.4 : 1.0;
@@ -202,13 +226,24 @@ final class Pathfinder {
                 sink.accept(tx, y, tz, 1.4);
                 continue;
             }
-            // drop <= MAX_DROP
+            // swim into a water cell at the same level
+            if (swimmable(tx, y, tz)) {
+                sink.accept(tx, y, tz, 1.6 * mul);
+                continue;
+            }
+            // drop <= MAX_DROP; landing in water is fine
             boolean done = false;
             if (passable(tx, y, tz) && passable(tx, y + 1, tz)) {
                 for (int dy = 1; dy <= MAX_DROP; dy++) {
                     if (walkable(tx, y - dy, tz)) {
                         sink.accept(tx, y - dy, tz,
                                 (0.6 + 0.4 * dy) * mul);
+                        done = true;
+                        break;
+                    }
+                    if (swimmable(tx, y - dy, tz)) {
+                        sink.accept(tx, y - dy, tz,
+                                (0.9 + 0.4 * dy) * mul);
                         done = true;
                         break;
                     }

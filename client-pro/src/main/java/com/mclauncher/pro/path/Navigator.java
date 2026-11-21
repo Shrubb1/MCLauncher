@@ -205,12 +205,19 @@ public final class Navigator {
         // Never while on a ladder/vine - jumping dismounts it
         boolean onClimbable = mc.world.getBlockState(p.getBlockPos())
                 .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
-        if (fwd > 0.5 && p.isOnGround() && !onClimbable
+        boolean inWater = p.isTouchingWater();
+        if (fwd > 0.5 && p.isOnGround() && !onClimbable && !inWater
                 && ((dy > 0.4 && hd < 2.0)
                     || (p.horizontalCollision && hd < 1.4)
                     || hd > 1.5)) {
             p.jump();
         }
+
+        // swim control: hold jump to rise - bobbing out onto a bank is
+        // the same input, and forced ascent when air runs out.
+        // getAir is in ticks; <120 = ~4s of air left
+        mc.options.jumpKey.setPressed(
+                inWater && (sdy > -0.5 || p.getAir() < 120));
 
         // progress toward the node, not just raw movement - circling
         // or being pushed around counts as stuck. Skip while airborne:
