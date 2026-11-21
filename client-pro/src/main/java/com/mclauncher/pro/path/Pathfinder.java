@@ -139,9 +139,14 @@ final class Pathfinder {
                 (int) (heur(start.getX(), start.getY(), start.getZ(),
                         goal.getX(), goal.getY(), goal.getZ()) * 400)));
         // closest-to-goal node seen: if the full route doesn't fit in
-        // the budget, march to this and let the navigator replan
+        // the budget, march to this and let the navigator replan.
+        // bestFNode tracks the least-bad frontier for local minima:
+        // at a canopy edge where every sideways move raises h and the
+        // drop is blocked, marching *somewhere* is still progress
         Node bestNode = s0;
         double bestH = s0.f - s0.g;
+        Node bestFNode = s0;
+        double bestF = s0.f;
         int iter = 0;
         while (!open.isEmpty() && iter++ < maxIter) {
             Node n = open.poll();
@@ -153,6 +158,10 @@ final class Pathfinder {
             if (h < bestH) {
                 bestH = h;
                 bestNode = n;
+            }
+            if (n.f < bestF) {
+                bestF = n.f;
+                bestFNode = n;
             }
             if (n.x == goal.getX() && n.z == goal.getZ()
                     && Math.abs(n.y - goal.getY()) <= 1) {
@@ -170,6 +179,16 @@ final class Pathfinder {
         if (bestNode != s0) {
             ArrayDeque<BlockPos> out = new ArrayDeque<>();
             for (Node c = bestNode; c != null; c = c.parent) {
+                out.addFirst(new BlockPos(c.x, c.y, c.z));
+            }
+            return new ArrayList<>(out);
+        }
+        // local minimum: nothing strictly closer exists, but there are
+        // still frontier nodes - march to the least-bad one and replan
+        // from the new vantage instead of reporting no route
+        if (bestFNode != s0) {
+            ArrayDeque<BlockPos> out = new ArrayDeque<>();
+            for (Node c = bestFNode; c != null; c = c.parent) {
                 out.addFirst(new BlockPos(c.x, c.y, c.z));
             }
             return new ArrayList<>(out);
