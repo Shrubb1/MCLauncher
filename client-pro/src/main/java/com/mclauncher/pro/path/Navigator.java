@@ -174,12 +174,14 @@ public final class Navigator {
         mc.options.backKey.setPressed(fwd < -0.2);
         mc.options.rightKey.setPressed(strafe > 0.2);   // D
         mc.options.leftKey.setPressed(strafe < -0.2);   // A
-        p.setSprinting(false);
+        p.setSprinting(fwd > 0.3);
 
-        // jump when the node is above us or we're nose-into a wall
+        // jump for step-ups and walls, and bhop on straights - moving
+        // toward a distant node on the ground covers ground faster
         if (fwd > 0.5 && p.isOnGround()
                 && ((dy > 0.4 && hd < 2.0)
-                    || (p.horizontalCollision && hd < 1.4))) {
+                    || (p.horizontalCollision && hd < 1.4)
+                    || hd > 1.5)) {
             p.jump();
         }
 
