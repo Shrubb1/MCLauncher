@@ -149,15 +149,35 @@ public final class Navigator {
             }
         }
 
-        // steer toward the node; move when roughly facing it
-        float want = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+        // steering target: the current node, or the next one when we
+        // are close - turning early arcs corners instead of pivoting
+        // in place on node centers
+        double sx = tx, sz = tz, sdy = dy;
+        if (hd < 1.4 && idx + 1 < path.size()) {
+            BlockPos n = path.get(idx + 1);
+            if (Math.abs(n.getY() - t.getY()) <= 1) {
+                sx = n.getX() + 0.5;
+                sz = n.getZ() + 0.5;
+                sdy = n.getY() - p.getY();
+            }
+        }
+        double sdx = sx - p.getX(), sdz = sz - p.getZ();
+
+        // steer yaw toward the steer target at an error-scaled rate,
+        // then decompose motion into forward + strafe keys relative to
+        // facing error so we keep moving while turning
+        float want = (float) (Math.toDegrees(Math.atan2(sdz, sdx)) - 90.0);
         p.setYaw(approach(p.getYaw(), want, 25f));
-        boolean aligned = Math.abs(wrap(want - p.getYaw())) < 50;
-        mc.options.forwardKey.setPressed(aligned);
+        double err = Math.toRadians(wrap(want - p.getYaw()));
+        double fwd = Math.cos(err), strafe = Math.sin(err);
+        mc.options.forwardKey.setPressed(fwd > 0.2);
+        mc.options.backKey.setPressed(fwd < -0.2);
+        mc.options.rightKey.setPressed(strafe > 0.2);   // D
+        mc.options.leftKey.setPressed(strafe < -0.2);   // A
         p.setSprinting(false);
 
         // jump when the node is above us or we're nose-into a wall
-        if (aligned && p.isOnGround()
+        if (fwd > 0.5 && p.isOnGround()
                 && ((dy > 0.4 && hd < 2.0)
                     || (p.horizontalCollision && hd < 1.4))) {
             p.jump();
@@ -232,6 +252,9 @@ public final class Navigator {
 
     private static void release(MinecraftClient mc) {
         mc.options.forwardKey.setPressed(false);
+        mc.options.backKey.setPressed(false);
+        mc.options.leftKey.setPressed(false);
+        mc.options.rightKey.setPressed(false);
         mc.options.jumpKey.setPressed(false);
         if (mc.player != null) {
             mc.player.setSprinting(false);
@@ -249,12 +272,15 @@ public final class Navigator {
         return p.getX() + " " + p.getY() + " " + p.getZ();
     }
 
+    /** Turn rate scales with error: big turns snap, small corrections
+     * ease in - smooths the constant hard-rate spinning. */
     private static float approach(float cur, float want, float maxTurn) {
         float diff = wrap(want - cur);
-        if (Math.abs(diff) <= maxTurn) {
+        float rate = Math.min(maxTurn, 6f + Math.abs(diff) * 0.4f);
+        if (Math.abs(diff) <= rate) {
             return want;
         }
-        return cur + Math.signum(diff) * maxTurn;
+        return cur + Math.signum(diff) * rate;
     }
 
     private static float wrap(float deg) {
