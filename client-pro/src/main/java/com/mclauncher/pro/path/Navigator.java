@@ -209,13 +209,16 @@ public final class Navigator {
 
         // in water, vertical motion follows the camera - pitch toward
         // the target's depth to dive or surface deliberately. Low air
-        // overrides: look up and get to the surface. On land ease the
-        // pitch back to level rather than snapping
+        // overrides: look up and get to the surface. Pitch changes are
+        // rate-limited like yaw - while bobbing at a bank the target's
+        // sdy oscillates every cycle and instant pitch-set nods the
+        // head. On land ease back to level rather than snapping
         if (inWater) {
             float wantPitch = lowAir ? -80f
                     : (float) -Math.toDegrees(Math.atan2(sdy,
                             Math.max(0.5, Math.hypot(sdx, sdz))));
-            p.setPitch(Math.max(-85f, Math.min(85f, wantPitch)));
+            wantPitch = Math.max(-60f, Math.min(60f, wantPitch));
+            p.setPitch(approach(p.getPitch(), wantPitch, 35f));
         } else {
             p.setPitch(p.getPitch() * 0.6f);
         }
