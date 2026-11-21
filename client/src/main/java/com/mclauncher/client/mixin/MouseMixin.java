@@ -15,6 +15,9 @@ public class MouseMixin {
     @Inject(method = "onMouseButton", at = @At("HEAD"))
     private void mcl$click(long window, int button, int action, int mods,
                            CallbackInfo ci) {
+        if (!ClientMod.isEnabled()) {
+            return;
+        }
         if (action == 1 && MinecraftClient.getInstance().currentScreen == null
                 && (button == 0 || button == 1)) {
             ClientMod.state.click(button);
@@ -24,7 +27,8 @@ public class MouseMixin {
     @Inject(method = "onMouseScroll", at = @At("HEAD"), cancellable = true)
     private void mcl$scroll(long window, double horizontal, double vertical,
                             CallbackInfo ci) {
-        if (ClientMod.state.zooming && ClientMod.settings.on("zoom")) {
+        if (ClientMod.isEnabled() && ClientMod.state.zooming
+                && ClientMod.settings.on("zoom")) {
             double f = ClientMod.settings.zoomFactor
                     - vertical * 0.5;
             ClientMod.settings.zoomFactor =

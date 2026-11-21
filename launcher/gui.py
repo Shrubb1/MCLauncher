@@ -3453,6 +3453,7 @@ class LauncherApp(ctk.CTk):
         if not licensed:
             self._render_mod_purchase(user)
         else:
+            self._render_mod_toggle(user)
             self._render_mod_activation(user)
         if user.get("admin"):
             self._render_mod_seller()
@@ -3543,6 +3544,30 @@ class LauncherApp(ctk.CTk):
                                            text_color=("gray35", "gray60"),
                                            wraplength=560, justify="left")
         self.mod_key_status.pack(anchor="w", padx=12, pady=(0, 12))
+
+    def _render_mod_toggle(self, user):
+        card = self._form_card("Enabled", parent=self.mod_scroll)
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=12, pady=(0, 4))
+        var = ctk.BooleanVar(
+            value=self.settings.get("client_mod_enabled", True))
+        ctk.CTkCheckBox(
+            row, text="Inject the client mod on every launch",
+            variable=var, font=FONT,
+            command=lambda: self._mod_toggle(var.get())).pack(side="left")
+        ctk.CTkLabel(
+            card, text="When off, the mod is skipped on the next launch of "
+                       "every instance - including jars copied elsewhere.",
+            font=FONT_SMALL, text_color=("gray35", "gray60"),
+            wraplength=560, justify="left").pack(anchor="w", padx=12,
+                                                 pady=(0, 10))
+
+    def _mod_toggle(self, on):
+        self.settings["client_mod_enabled"] = bool(on)
+        config.save_settings(self.settings)
+        bound = (users.current_user() or {}).get("bound_mc") or ""
+        core.write_client_activation(bool(on), [bound] if bound else [])
+        self._set_status("Client mod " + ("enabled" if on else "disabled"))
 
     def _render_mod_activation(self, user):
         # activation
@@ -4130,8 +4155,15 @@ class LauncherApp(ctk.CTk):
             # built-in client mod needs Fabric Loader underneath - vanilla
             # instances silently ride a Fabric runtime for the same MC version
             cmod_jar = None
-            want_cmod = users.is_licensed() or \
-                (inst and inst.get("client_mod"))
+            cmod_on = self.settings.get("client_mod_enabled", True)
+            want_cmod = cmod_on and (users.is_licensed() or
+                                     (inst and inst.get("client_mod")))
+            # refresh the runtime gate: copied jars honor the toggle and
+            # only activate for the bound Minecraft name
+            _u = users.current_user() or {}
+            _bound = _u.get("bound_mc") or ""
+            core.write_client_activation(
+                cmod_on, [_bound] if _u.get("licensed") and _bound else [])
             if want_cmod and loader_id in ("vanilla", "fabric", "quilt"):
                 cmod_jar, cmod_why = core.client_mod_for(mc_version)
                 if cmod_jar is None:

@@ -15,6 +15,12 @@ public class ClientMod implements ClientModInitializer {
     public static ClientSettings settings;
     public static HudState state;
 
+    /** Runtime gate: false unless activation.json marks this session's
+     * Minecraft name as bound and enabled. A copied jar does nothing. */
+    public static boolean isEnabled() {
+        return Activation.isEnabled();
+    }
+
     @Override
     public void onInitializeClient() {
         state = new HudState();
@@ -31,6 +37,9 @@ public class ClientMod implements ClientModInitializer {
 
     /** Called from InGameHudMixin after vanilla HUD draws. */
     public static void renderHud(DrawContext ctx) {
+        if (!isEnabled()) {
+            return;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.options.hudHidden || mc.currentScreen != null) {
             return;

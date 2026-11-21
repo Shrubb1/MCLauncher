@@ -15,7 +15,8 @@ public class MinecraftClientMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void mcl$borderless(CallbackInfo ci) {
-        if (!ClientMod.settings.on("borderless")
+        if (!ClientMod.isEnabled()
+                || !ClientMod.settings.on("borderless")
                 || ClientMod.settings.borderlessApplied) {
             return;
         }

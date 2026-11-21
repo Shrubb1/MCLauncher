@@ -17,6 +17,9 @@ public class KeyboardMixin {
     @Inject(method = "onKey", at = @At("HEAD"))
     private void mcl$onKey(long window, int key, int scancode, int action,
                            int modifiers, CallbackInfo ci) {
+        if (!ClientMod.isEnabled()) {
+            return;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (key == GLFW.GLFW_KEY_C) {
             if (action == GLFW.GLFW_PRESS) {

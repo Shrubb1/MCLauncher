@@ -25,6 +25,9 @@ public class ClientPlayerEntityMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void mcl$toggles(CallbackInfo ci) {
+        if (!ClientMod.isEnabled()) {
+            return;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         sprintWasHeld = apply(mc, mc.options.sprintKey,
                 ClientMod.state.sprintToggled

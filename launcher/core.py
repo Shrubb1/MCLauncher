@@ -267,6 +267,22 @@ def mc_satisfies(constraint: str, mc: str) -> bool:
     return False
 
 
+def write_client_activation(enabled: bool, names: list) -> None:
+    """Activation file the client mod checks at runtime.
+
+    Written on every launch and whenever the global toggle flips so the
+    on/off state and the bound-name list follow the jar even when it's
+    copied outside our instances - an unbound name gets vanilla behavior.
+    """
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        (CONFIG_DIR / "activation.json").write_text(
+            json.dumps({"enabled": bool(enabled),
+                        "names": [n for n in names if n]}))
+    except OSError:
+        pass
+
+
 def client_mod_for(mc_version: str):
     """(jar_path, None) if the bundled client mod declares compatibility
     with mc_version, else (None, human reason)."""
