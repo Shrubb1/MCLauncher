@@ -178,9 +178,15 @@ public class ConfigScreen extends Screen {
 
     // ------------------------------------------------------------- render
 
+    /**
+     * Everything custom paints in renderBackground - super.render() runs
+     * this BEFORE drawing widgets, so buttons sit on top of the panel
+     * instead of being washed out by its fill.
+     */
     @Override
-    public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        super.render(ctx, mouseX, mouseY, delta);
+    public void renderBackground(DrawContext ctx, int mouseX, int mouseY,
+                                 float delta) {
+        super.renderBackground(ctx, mouseX, mouseY, delta);
         int[] p = panel();
         int px = p[0], py = p[1], pw = p[2], ph = p[3];
 
