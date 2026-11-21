@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ChatHud.class)
 public class ChatHudMixin {
 
-    @Inject(method = "addMessage(Lnet/minecraft/class_2561;)V",
+    @Inject(method = "addMessage(Lnet/minecraft/text/Text;)V",
             at = @At("HEAD"))
     private void mcl$mention(Text message, CallbackInfo ci) {
         if (ProMod.isEnabled()) {
