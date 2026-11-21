@@ -6,12 +6,14 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Walks a Pathfinder-produced route: re-anchors every client tick,
  * steers yaw toward the next node, presses forward/jump via the vanilla
- * key state, detects no-progress and repaths (twice, then gives up).
+ * key state, tracks approach progress and repaths (with a memory of
+ * where it last failed) when stuck, off-route, or circling.
  */
 public final class Navigator {
 
@@ -21,6 +23,14 @@ public final class Navigator {
     private static int repaths;
     private static double lastX, lastZ;
     private static int stillTicks;
+    /** best distance so far to the current node - if it stops
+     * improving we're circling/being pushed, not walking */
+    private static double bestHd;
+    private static int noGain;
+    private static int nodesDone;
+    /** positions where we got stuck - fed back into repaths so the
+     * next plan pays extra to route near them */
+    private static final List<BlockPos> stuckSpots = new ArrayList<>();
 
     private Navigator() {
     }
@@ -36,6 +46,8 @@ public final class Navigator {
         }
         goal = target;
         repaths = 0;
+        nodesDone = 0;
+        stuckSpots.clear();
         plan(mc, true);
     }
 
@@ -50,7 +62,8 @@ public final class Navigator {
 
     private static void plan(MinecraftClient mc, boolean first) {
         BlockPos feet = mc.player.getBlockPos();
-        List<BlockPos> found = new Pathfinder(mc.world).find(feet, goal);
+        List<BlockPos> found =
+                new Pathfinder(mc.world).find(feet, goal, stuckSpots);
         if (found == null) {
             path = null;
             release(mc);
@@ -60,8 +73,10 @@ public final class Navigator {
         path = found;
         idx = 0;
         stillTicks = 0;
+        noGain = 0;
         lastX = mc.player.getX();
         lastZ = mc.player.getZ();
+        bestHd = Double.MAX_VALUE;
         if (first) {
             say("§7[path] heading to " + shortPos(goal)
                     + " - " + found.size() + " nodes");
@@ -87,7 +102,7 @@ public final class Navigator {
         double dy = t.getY() - p.getY();
 
         if (hd < 0.35 && dy > -1.6 && dy < 1.6) {
-            idx++;
+            advance();
             if (idx >= path.size()) {
                 finish(mc);
                 return;
@@ -99,6 +114,27 @@ public final class Navigator {
             dz = tz - p.getZ();
             hd = Math.hypot(dx, dz);
             dy = t.getY() - p.getY();
+        }
+
+        // overshot a node? adopt a nearer later node instead of
+        // walking back
+        while (idx + 1 < path.size()) {
+            BlockPos n = path.get(idx + 1);
+            double nd = Math.hypot(n.getX() + 0.5 - p.getX(),
+                    n.getZ() + 0.5 - p.getZ());
+            double ndy = n.getY() - p.getY();
+            if (nd < hd - 0.2 && ndy > -1.6 && ndy < 1.6) {
+                advance();
+                t = n;
+                tx = t.getX() + 0.5;
+                tz = t.getZ() + 0.5;
+                dx = tx - p.getX();
+                dz = tz - p.getZ();
+                hd = nd;
+                dy = ndy;
+            } else {
+                break;
+            }
         }
 
         // steer toward the node; move when roughly facing it
@@ -115,19 +151,52 @@ public final class Navigator {
             p.jump();
         }
 
-        // stuck detection: no horizontal progress for ~2.5s -> repath
+        // progress toward the node, not just raw movement - circling
+        // or being pushed around counts as stuck
+        if (hd < bestHd - 0.05) {
+            bestHd = hd;
+            noGain = 0;
+        } else {
+            noGain++;
+        }
+
+        // off-route recovery: fell below the node's y-plane or got
+        // knocked/thrown far off it - replan now rather than grind
+        if (dy < -2.6 || hd > 7.0 || noGain > 45) {
+            stuck(mc);
+            return;
+        }
+
+        // still-in-place fallback for slow drift under the gain floor
         if (++stillTicks % 50 == 0) {
             if (Math.hypot(p.getX() - lastX, p.getZ() - lastZ) < 0.6) {
-                if (++repaths > 2) {
-                    cancel("§c[path] stuck - giving up");
-                    return;
-                }
-                plan(mc, false);
+                stuck(mc);
                 return;
             }
             lastX = p.getX();
             lastZ = p.getZ();
         }
+    }
+
+    private static void advance() {
+        idx++;
+        // real progress pays back repath budget so long routes with
+        // several bad spots don't exhaust retries on the first one
+        if (++nodesDone % 10 == 0 && repaths > 0) {
+            repaths--;
+        }
+    }
+
+    private static void stuck(MinecraftClient mc) {
+        stuckSpots.add(mc.player.getBlockPos());
+        if (stuckSpots.size() > 8) {
+            stuckSpots.remove(0);
+        }
+        if (++repaths > 3) {
+            cancel("§c[path] stuck - giving up");
+            return;
+        }
+        plan(mc, false);
     }
 
     private static void finish(MinecraftClient mc) {

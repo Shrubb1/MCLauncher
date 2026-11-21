@@ -29,6 +29,9 @@ final class Pathfinder {
             {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
 
     private final ClientWorld world;
+    /** spots where the walker recently got stuck - repaths pay extra
+     * to route near them so retries try different terrain */
+    private List<BlockPos> avoid = List.of();
 
     private record Node(int x, int y, int z, double g, double f,
                         Node parent) implements Comparable<Node> {
@@ -82,6 +85,14 @@ final class Pathfinder {
 
     /** Shortest path of feet positions from start to goal, or null. */
     List<BlockPos> find(BlockPos start, BlockPos goal) {
+        return find(start, goal, List.of());
+    }
+
+    /** Same, but nodes near {@code avoid} spots cost extra so a repath
+     * prefers terrain that didn't just fail. */
+    List<BlockPos> find(BlockPos start, BlockPos goal,
+                        List<BlockPos> avoid) {
+        this.avoid = avoid == null ? List.of() : avoid;
         if (!walkable(goal.getX(), goal.getY(), goal.getZ())) {
             // aim for a walkable spot next to the goal instead
             BlockPos alt = nearestWalkable(goal);
@@ -168,6 +179,7 @@ final class Pathfinder {
     private void relax(Node n, int x, int y, int z, double g,
                        BlockPos goal, PriorityQueue<Node> open,
                        HashMap<Long, Double> best) {
+        g += penalty(x, y, z);
         long k = key(x, y, z);
         Double prev = best.get(k);
         if (prev != null && prev <= g) {
@@ -177,6 +189,21 @@ final class Pathfinder {
         open.add(new Node(x, y, z, g,
                 g + heur(x, y, z, goal.getX(), goal.getY(), goal.getZ()),
                 n));
+    }
+
+    /** Extra cost within ~4 blocks of a remembered stuck spot. Flat so
+     * the spot stays traversable when there is genuinely no other way. */
+    private double penalty(int x, int y, int z) {
+        double add = 0;
+        for (BlockPos a : avoid) {
+            if (Math.abs(y - a.getY()) <= 3) {
+                double dx = x - a.getX(), dz = z - a.getZ();
+                if (dx * dx + dz * dz <= 16.0) {
+                    add = Math.max(add, 6.0);
+                }
+            }
+        }
+        return add;
     }
 
     private BlockPos nearestWalkable(BlockPos goal) {
