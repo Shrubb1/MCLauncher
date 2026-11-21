@@ -23,11 +23,17 @@ public class KeyboardMixin {
             return;
         }
         MinecraftClient mc = MinecraftClient.getInstance();
+        int key = input.key();
+        // Right Shift stops the bot even with a screen open - a pause
+        // shouldn't require closing the screen first to end it
+        if (action == GLFW.GLFW_PRESS && key == GLFW.GLFW_KEY_RIGHT_SHIFT
+                && Navigator.active()) {
+            Navigator.cancel("§7[path] stopped");
+        }
         if (mc.currentScreen != null) {
             ClientMod.state.zooming = false;
             return;
         }
-        int key = input.key();
         if (key == GLFW.GLFW_KEY_C) {
             if (action == GLFW.GLFW_PRESS) {
                 ClientMod.state.zooming = true;
@@ -36,9 +42,6 @@ public class KeyboardMixin {
             }
         }
         if (action == GLFW.GLFW_PRESS && mc.player != null) {
-            if (key == GLFW.GLFW_KEY_RIGHT_SHIFT && Navigator.active()) {
-                Navigator.cancel("§7[path] stopped");
-            }
             if (key == GLFW.GLFW_KEY_GRAVE_ACCENT
                     && ClientMod.settings.on("sprint")) {
                 ClientMod.state.sprintToggled =
