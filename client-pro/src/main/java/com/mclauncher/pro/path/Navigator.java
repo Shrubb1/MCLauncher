@@ -41,6 +41,8 @@ public final class Navigator {
     private static double lastGoalDist;
     /** a screen is currently holding the nav in pause */
     private static boolean screenPaused;
+    /** last tick's active() - dashboard task logging */
+    private static boolean wasActive;
 
     private Navigator() {
     }
@@ -126,6 +128,16 @@ public final class Navigator {
 
     /** Called every player tick while the pro tier is enabled. */
     public static void tick(MinecraftClient mc) {
+        // dashboard logging: any active() flip counts as a task run
+        boolean a = goal != null;
+        if (a != wasActive) {
+            if (a) {
+                ClientMod.stats.begin("goto", shortPos(goal));
+            } else {
+                ClientMod.stats.end(0);
+            }
+            wasActive = a;
+        }
         if (goal == null || mc.player == null || mc.world == null) {
             return;
         }

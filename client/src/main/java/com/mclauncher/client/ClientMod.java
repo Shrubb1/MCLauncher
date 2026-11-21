@@ -22,6 +22,8 @@ public class ClientMod implements ClientModInitializer {
 
     public static ClientSettings settings;
     public static HudState state;
+    /** Automation history for the Dashboard - pro pushes events in */
+    public static TaskStats stats;
 
     /** Free tier is ungated - the pro jar carries the activation check. */
     public static boolean isEnabled() {
@@ -32,12 +34,19 @@ public class ClientMod implements ClientModInitializer {
     public void onInitializeClient() {
         state = new HudState();
         settings = ClientSettings.load();
+        stats = TaskStats.load();
         Runtime.getRuntime().addShutdownHook(new Thread(ClientMod::saveQuiet));
     }
 
     public static void saveQuiet() {
         try {
             settings.save();
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (stats != null) {
+                stats.save();
+            }
         } catch (Throwable ignored) {
         }
     }

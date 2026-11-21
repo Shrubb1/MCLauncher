@@ -53,6 +53,8 @@ public final class RouteRunner {
     private static String routeName = "", ore = "";
     private static volatile JsonObject pending;
     private static boolean running, loading, navigating;
+    /** last tick's running state - dashboard task logging */
+    private static boolean wasActive;
     private static int idx;
     private static long mineUntil;
 
@@ -137,6 +139,17 @@ public final class RouteRunner {
 
     /** Called every player tick while the pro tier is enabled. */
     public static void tick(MinecraftClient mc) {
+        // dashboard: a route is itself a task, on top of the goto/mine
+        // legs it drives
+        boolean a = running;
+        if (a != wasActive) {
+            if (a) {
+                ClientMod.stats.begin("route", "loading...");
+            } else {
+                ClientMod.stats.end(0);
+            }
+            wasActive = a;
+        }
         if (!running) {
             return;
         }
@@ -170,6 +183,8 @@ public final class RouteRunner {
                 mineUntil = now + (long) (s.seconds * 1000);
                 say("§7[route] spot " + (idx + 1) + "/" + spots.size()
                         + " - mining " + (int) s.seconds + "s");
+                ClientMod.stats.activeDetail = routeName + " - spot "
+                        + (idx + 1) + "/" + spots.size() + " mining";
             }
         } else if (!Miner.active() || now >= mineUntil) {
             if (Miner.active()) {
@@ -181,6 +196,8 @@ public final class RouteRunner {
             navigating = true;
             say("§7[route] heading to spot " + (idx + 1) + "/"
                     + spots.size());
+            ClientMod.stats.activeDetail = routeName + " - spot "
+                    + (idx + 1) + "/" + spots.size() + " traveling";
         }
     }
 
@@ -219,6 +236,7 @@ public final class RouteRunner {
         Navigator.start(new BlockPos(s.x, s.y, s.z));
         say("§7[route] " + routeName + " - " + spots.size()
                 + " spots, looping. Right Shift to stop");
+        ClientMod.stats.activeDetail = routeName;
     }
 
     private static JsonObject error(String msg) {

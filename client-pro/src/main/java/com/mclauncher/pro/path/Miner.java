@@ -50,6 +50,9 @@ public final class Miner {
     private static int mineTicks;
     private static boolean screenPaused;
     private static int markerTicks;
+    /** last tick's active() + blocks broken - dashboard task logging */
+    private static boolean wasActive;
+    private static int broken;
 
     private Miner() {
     }
@@ -92,6 +95,16 @@ public final class Miner {
 
     /** Called every player tick while the pro tier is enabled. */
     public static void tick(MinecraftClient mc) {
+        boolean a = query != null;
+        if (a != wasActive) {
+            if (a) {
+                broken = 0;
+                ClientMod.stats.begin("mine", query);
+            } else {
+                ClientMod.stats.end(broken);
+            }
+            wasActive = a;
+        }
         if (query == null || mc.player == null || mc.world == null) {
             return;
         }
@@ -123,6 +136,7 @@ public final class Miner {
         if (target != null
                 && !matches(mc.world.getBlockState(target))) {
             target = null; // mined
+            broken++;
         }
         long now = System.currentTimeMillis();
         if (target == null) {
