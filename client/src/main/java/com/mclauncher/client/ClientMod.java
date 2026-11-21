@@ -53,6 +53,8 @@ public class ClientMod implements ClientModInitializer {
             noticeChecked = true;
             checkUpdateNotice(mc);
         }
+        UpdateChecker.kick(mc);
+        UpdateChecker.maybeAnnounce(mc);
         HudRenderer.render(ctx, mc, settings, state);
     }
 
