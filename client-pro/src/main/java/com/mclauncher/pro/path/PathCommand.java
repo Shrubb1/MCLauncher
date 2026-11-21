@@ -10,6 +10,7 @@ import net.minecraft.util.math.BlockPos;
  *   #goto x z        walk to column (y resolved on the ground)
  *   #goto x y z      walk to exact spot
  *   #mine <block>    scan + etherwarp + harvest matching blocks
+ *   #mine            same, targeting the block you're looking at
  *   #mine stop       stop mining
  *   #stop / #cancel  abort
  */
@@ -55,13 +56,28 @@ public final class PathCommand {
                 }
             }
             case "mine" -> {
-                if (a.length < 2) {
-                    usage();
+                if (a.length >= 2 && (a[1].equalsIgnoreCase("stop")
+                        || a[1].equalsIgnoreCase("off"))) {
+                    Miner.cancel("§7[mine] stopped");
                     break;
                 }
-                if (a[1].equalsIgnoreCase("stop")
-                        || a[1].equalsIgnoreCase("off")) {
-                    Miner.cancel("§7[mine] stopped");
+                if (a.length < 2 || a[1].equalsIgnoreCase("this")) {
+                    // "#mine" while looking at a block = mine that type
+                    if (mc.crosshairTarget
+                            instanceof net.minecraft.util.hit.BlockHitResult h
+                            && h.getType()
+                                    == net.minecraft.util.hit.HitResult
+                                            .Type.BLOCK) {
+                        var st = mc.world.getBlockState(h.getBlockPos());
+                        String id = net.minecraft.registry.Registries.BLOCK
+                                .getId(st.getBlock()).getPath();
+                        Miner.start(id);
+                        say("§7[mine] target: §f"
+                                + st.getBlock().getName().getString());
+                    } else {
+                        say("§c[mine] look at a block first, or name "
+                                + "one: #mine diamond_ore");
+                    }
                 } else {
                     Miner.start(a[1]);
                 }
@@ -114,6 +130,7 @@ public final class PathCommand {
     }
 
     private static void usage() {
-        say("§7[path] #goto x z | #goto x y z | #mine <block> | #stop");
+        say("§7[path] #goto x z | #goto x y z | #mine <block> | "
+                + "#mine (look at one) | #stop");
     }
 }

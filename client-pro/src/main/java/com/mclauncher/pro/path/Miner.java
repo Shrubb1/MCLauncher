@@ -64,6 +64,9 @@ public final class Miner {
             return;
         }
         query = ore.toLowerCase().replace(' ', '_');
+        if (query.contains(":")) {
+            query = query.substring(query.indexOf(':') + 1);
+        }
         failed.clear();
         target = null;
         cluster = List.of();
@@ -340,8 +343,14 @@ public final class Miner {
     }
 
     private static boolean matches(BlockState s) {
-        return Registries.BLOCK.getId(s.getBlock()).getPath()
-                .contains(query);
+        String path = Registries.BLOCK.getId(s.getBlock()).getPath();
+        if (query.contains("_")) {
+            // explicit id like diamond_ore - covers the deepslate
+            // variant too since it contains the same substring
+            return path.contains(query);
+        }
+        // bare name like iron: the ore forms, not iron_bars/iron_door
+        return path.endsWith(query + "_ore") || path.equals(query);
     }
 
     /** Visual queue: END_ROD on each vein block, FLAME on the exact
