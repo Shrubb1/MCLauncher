@@ -28,6 +28,10 @@ public final class Navigator {
     private static double bestHd;
     private static int noGain;
     private static int nodesDone;
+    /** horizontal distance walked since the last plan - periodic
+     * re-optimization trigger */
+    private static double sincePlan;
+    private static double prevX, prevZ;
     /** positions where we got stuck - fed back into repaths so the
      * next plan pays extra to route near them */
     private static final List<BlockPos> stuckSpots = new ArrayList<>();
@@ -50,6 +54,7 @@ public final class Navigator {
         repaths = 0;
         nodesDone = 0;
         retryAt = 0;
+        sincePlan = 0;
         stuckSpots.clear();
         plan(mc, true);
     }
@@ -65,6 +70,11 @@ public final class Navigator {
     }
 
     private static void plan(MinecraftClient mc, boolean first) {
+        plan(mc, first, false);
+    }
+
+    private static void plan(MinecraftClient mc, boolean first,
+                             boolean quiet) {
         BlockPos feet = mc.player.getBlockPos();
         List<BlockPos> found =
                 new Pathfinder(mc.world).find(feet, goal, stuckSpots);
@@ -79,9 +89,15 @@ public final class Navigator {
         idx = 0;
         stillTicks = 0;
         noGain = 0;
+        sincePlan = 0;
         lastX = mc.player.getX();
         lastZ = mc.player.getZ();
+        prevX = mc.player.getX();
+        prevZ = mc.player.getZ();
         bestHd = Double.MAX_VALUE;
+        if (quiet) {
+            return;
+        }
         if (first) {
             say("§7[path] heading to " + shortPos(goal)
                     + " - " + found.size() + " nodes");
@@ -203,6 +219,19 @@ public final class Navigator {
         if (dy > 2.6 || hd > 7.0 || noGain > 45) {
             stuck(mc);
             return;
+        }
+
+        // periodic re-optimization: every ~15 blocks traveled, quietly
+        // re-plan from the new position - a shorter/cleaner route may
+        // open up as the vantage changes. Grounded only - mid-air feet
+        // positions aren't valid A* starts. A* is a few ms at these
+        // budgets, this costs nothing.
+        sincePlan += Math.hypot(p.getX() - prevX, p.getZ() - prevZ);
+        prevX = p.getX();
+        prevZ = p.getZ();
+        if (sincePlan > 15 && p.isOnGround()
+                && idx < path.size() - 2) {
+            plan(mc, false, true);
         }
 
         // still-in-place fallback for slow drift under the gain floor
