@@ -17,8 +17,8 @@ import java.util.Set;
 /**
  * A* over integer "feet" positions. An edge exists between feet spots
  * when the player can move between them by walking, stepping up one,
- * dropping <= 3, or leaping a 1-wide gap. No digging, bridging, ladders
- * or water in v1 - if the goal needs those, no path is reported.
+ * dropping, leaping a gap, climbing a ladder/vine column, or swimming.
+ * No digging or bridging - if the goal needs those, no path is reported.
  */
 final class Pathfinder {
 
@@ -26,6 +26,9 @@ final class Pathfinder {
     /** Drop ceiling - testing is creative so fall damage doesn't
      * matter; 20 bounds the column scan and covers any sane ledge */
     private static final int MAX_DROP = 20;
+    /** Drops that land in water are safe at any height - deeper ceiling,
+     * still bounded so the column scan stays cheap */
+    private static final int MAX_WATER_DROP = 40;
     private static final int[][] DIRS = {
             {1, 0}, {-1, 0}, {0, 1}, {0, -1},
             {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
@@ -80,6 +83,12 @@ final class Pathfinder {
                 .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
     }
 
+    /** Any cell the walker can occupy: on foot, swimming, or climbing. */
+    private boolean usable(int x, int y, int z) {
+        return walkable(x, y, z) || swimmable(x, y, z)
+                || climbable(x, y, z);
+    }
+
     private boolean waterAt(int x, int y, int z) {
         return !world.getFluidState(new BlockPos(x, y, z)).isEmpty();
     }
@@ -116,37 +125,33 @@ final class Pathfinder {
     List<BlockPos> find(BlockPos start, BlockPos goal,
                         List<BlockPos> avoid) {
         this.avoid = avoid == null ? List.of() : avoid;
-        if (!walkable(goal.getX(), goal.getY(), goal.getZ())) {
-            // aim for a walkable spot next to the goal instead
-            BlockPos alt = nearestWalkable(goal);
+        if (!usable(goal.getX(), goal.getY(), goal.getZ())) {
+            // aim for a usable spot next to the goal instead
+            BlockPos alt = nearestUsable(goal);
             if (alt == null) {
                 return null;
             }
             goal = alt;
         }
+        final BlockPos g = goal;
         PriorityQueue<Node> open = new PriorityQueue<>(
                 Comparator.comparingDouble(n -> n.f));
         HashMap<Long, Double> best = new HashMap<>();
         Set<Long> closed = new HashSet<>();
         Node s0 = new Node(start.getX(), start.getY(), start.getZ(), 0,
                 heur(start.getX(), start.getY(), start.getZ(),
-                        goal.getX(), goal.getY(), goal.getZ()), null);
+                        g.getX(), g.getY(), g.getZ()), null);
         open.add(s0);
         best.put(key(s0.x, s0.y, s0.z), 0.0);
         // budget scales with straight-line distance: far goals need a
         // wider search before it's fair to say "can't get closer"
         int maxIter = Math.min(300000, Math.max(MAX_ITER,
                 (int) (heur(start.getX(), start.getY(), start.getZ(),
-                        goal.getX(), goal.getY(), goal.getZ()) * 400)));
+                        g.getX(), g.getY(), g.getZ()) * 400)));
         // closest-to-goal node seen: if the full route doesn't fit in
-        // the budget, march to this and let the navigator replan.
-        // bestFNode tracks the least-bad frontier for local minima:
-        // at a canopy edge where every sideways move raises h and the
-        // drop is blocked, marching *somewhere* is still progress
+        // the budget, march to this and let the navigator replan
         Node bestNode = s0;
         double bestH = s0.f - s0.g;
-        Node bestFNode = s0;
-        double bestF = s0.f;
         int iter = 0;
         while (!open.isEmpty() && iter++ < maxIter) {
             Node n = open.poll();
@@ -159,12 +164,8 @@ final class Pathfinder {
                 bestH = h;
                 bestNode = n;
             }
-            if (n.f < bestF) {
-                bestF = n.f;
-                bestFNode = n;
-            }
-            if (n.x == goal.getX() && n.z == goal.getZ()
-                    && Math.abs(n.y - goal.getY()) <= 1) {
+            if (n.x == g.getX() && n.z == g.getZ()
+                    && Math.abs(n.y - g.getY()) <= 1) {
                 ArrayDeque<BlockPos> out = new ArrayDeque<>();
                 for (Node c = n; c != null; c = c.parent) {
                     out.addFirst(new BlockPos(c.x, c.y, c.z));
@@ -172,7 +173,7 @@ final class Pathfinder {
                 return new ArrayList<>(out);
             }
             expand(n.x, n.y, n.z, (tx, ty, tz, cost) ->
-                    relax(n, tx, ty, tz, n.g + cost, goal, open, best));
+                    relax(n, tx, ty, tz, n.g + cost, g, open, best));
         }
         // no full route - return the best partial path so the walker
         // still makes progress toward the goal and replans from there
@@ -184,11 +185,13 @@ final class Pathfinder {
             return new ArrayList<>(out);
         }
         // local minimum: nothing strictly closer exists, but there are
-        // still frontier nodes - march to the least-bad one and replan
-        // from the new vantage instead of reporting no route
-        if (bestFNode != s0) {
+        // still frontier nodes - march to the least-bad one (the next
+        // cell A* would expand) and replan from the new vantage instead
+        // of reporting no route. An empty frontier means the reachable
+        // region was fully explored - genuinely enclosed
+        if (!open.isEmpty()) {
             ArrayDeque<BlockPos> out = new ArrayDeque<>();
-            for (Node c = bestFNode; c != null; c = c.parent) {
+            for (Node c = open.peek(); c != null; c = c.parent) {
                 out.addFirst(new BlockPos(c.x, c.y, c.z));
             }
             return new ArrayList<>(out);
@@ -250,11 +253,11 @@ final class Pathfinder {
                 sink.accept(tx, y, tz, 1.6 * mul);
                 continue;
             }
-            // drop <= MAX_DROP; landing in water is fine
+            // drop: <= MAX_DROP onto land, <= MAX_WATER_DROP into water
             boolean done = false;
             if (passable(tx, y, tz) && passable(tx, y + 1, tz)) {
-                for (int dy = 1; dy <= MAX_DROP; dy++) {
-                    if (walkable(tx, y - dy, tz)) {
+                for (int dy = 1; dy <= MAX_WATER_DROP; dy++) {
+                    if (dy <= MAX_DROP && walkable(tx, y - dy, tz)) {
                         sink.accept(tx, y - dy, tz,
                                 (0.6 + 0.4 * dy) * mul);
                         done = true;
@@ -354,9 +357,9 @@ final class Pathfinder {
         return add;
     }
 
-    private BlockPos nearestWalkable(BlockPos goal) {
+    private BlockPos nearestUsable(BlockPos goal) {
         for (int r = 0; r <= 2; r++) {
-            for (int dy = -2; dy <= 2; dy++) {
+            for (int dy = 2; dy >= -2; dy--) {
                 for (int dx = -r; dx <= r; dx++) {
                     for (int dz = -r; dz <= r; dz++) {
                         if (Math.abs(dx) != r && Math.abs(dz) != r) {
@@ -364,7 +367,7 @@ final class Pathfinder {
                         }
                         int x = goal.getX() + dx, y = goal.getY() + dy,
                                 z = goal.getZ() + dz;
-                        if (walkable(x, y, z)) {
+                        if (usable(x, y, z)) {
                             return new BlockPos(x, y, z);
                         }
                     }

@@ -59,10 +59,16 @@ public final class PathCommand {
         return true;
     }
 
-    /** First standable height at the column scanning down from top. */
+    /** First standable or swimmable height at the column scanning down
+     * from top. Water has no collision shape, so feet-fluid + head-air
+     * marks the surface - a swim target beats the lakebed. */
     private static int groundY(MinecraftClient mc, int x, int top, int z) {
         for (int y = top; y > mc.world.getBottomY() + 1; y--) {
             BlockPos p = new BlockPos(x, y, z);
+            if (!mc.world.getFluidState(p).isEmpty()
+                    && mc.world.getFluidState(p.up()).isEmpty()) {
+                return y; // water surface
+            }
             boolean feet = mc.world.getBlockState(p)
                     .getCollisionShape(mc.world, p).isEmpty();
             boolean head = mc.world.getBlockState(p.up())
