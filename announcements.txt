@@ -1,3 +1,19 @@
+2026-11-21 | v1.2.74 - Account & profile refinements
+This release tidies up the account experience end to end: a cleaner
+sign-in and sign-up flow, a tidier profile page, and a round of
+improvements behind the scenes. Existing accounts carry over
+automatically - there's nothing you need to do.
+---
+2026-11-21 | v1.2.73 - A fresh look in game
+The in-game panel has been rebuilt from the ground up. Press Right
+Shift to find a proper dashboard with live status, activity stats,
+and your recent session history, plus a redesigned modules page.
+---
+2026-11-21 | v1.2.72 - Under the hood
+A batch of behind-the-scenes improvements across the client and the
+service that powers it. Things should feel a little smoother and a
+little sturdier all around.
+---
 2026-11-20 | v1.2.31 - Dashboard
 The launcher now has a Dashboard: jump back into your last instance,
 see which friends are online or in-game, and join their server in

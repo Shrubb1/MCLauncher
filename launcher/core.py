@@ -487,17 +487,18 @@ def _ann_from_file(timeout) -> list:
 
 
 def fetch_announcements(timeout=8) -> list:
-    """Newest release notes, cached 5 min."""
+    """Newest release notes, cached 5 min. The curated announcements.txt
+    wins - raw commit messages are dev-facing, not public copy."""
     if time.time() - _ANN_CACHE["ts"] < 300 and _ANN_CACHE["items"]:
         return _ANN_CACHE["items"]
     items = []
     try:
-        items = _ann_from_tags(timeout)
+        items = _ann_from_file(timeout)
     except Exception:
         pass
     if not items:
         try:
-            items = _ann_from_file(timeout)
+            items = _ann_from_tags(timeout)
         except Exception:
             return _ANN_CACHE["items"]
     _ANN_CACHE.update({"ts": time.time(), "items": items})
