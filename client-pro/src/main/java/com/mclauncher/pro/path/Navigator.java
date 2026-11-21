@@ -194,9 +194,10 @@ public final class Navigator {
             noGain++;
         }
 
-        // off-route recovery: fell below the node's y-plane or got
-        // knocked/thrown far off it - replan now rather than grind
-        if (dy < -2.6 || hd > 7.0 || noGain > 45) {
+        // off-route recovery: fell BELOW the node's y-plane or got
+        // knocked/thrown far off it - replan now rather than grind.
+        // (node below us = descending a planned drop, not off-route)
+        if (dy > 2.6 || hd > 7.0 || noGain > 45) {
             stuck(mc);
             return;
         }

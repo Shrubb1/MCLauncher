@@ -23,7 +23,9 @@ import java.util.Set;
 final class Pathfinder {
 
     private static final int MAX_ITER = 20000;
-    private static final int MAX_DROP = 3;
+    /** Safe drop is 3; up to 6 allowed but costs extra - each block
+     * over 3 is ~half a heart of fall damage without enchantments */
+    private static final int MAX_DROP = 6;
     private static final int[][] DIRS = {
             {1, 0}, {-1, 0}, {0, 1}, {0, -1},
             {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
@@ -164,9 +166,12 @@ final class Pathfinder {
                 if (passable(tx, n.y, tz) && passable(tx, n.y + 1, tz)) {
                     for (int dy = 1; dy <= MAX_DROP; dy++) {
                         if (walkable(tx, n.y - dy, tz)) {
+                            // past 3 blocks it hurts: price the damage
+                            // so shorter drops win when they exist
+                            double hurt = Math.max(0, dy - 3) * 1.5;
                             relax(n, tx, n.y - dy, tz,
-                                    n.g + (0.6 + 0.4 * dy) * mul, goal,
-                                    open, best);
+                                    n.g + (0.6 + 0.4 * dy + hurt) * mul,
+                                    goal, open, best);
                             relaxed = true;
                             break;
                         }
