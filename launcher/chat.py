@@ -69,10 +69,12 @@ def friends(token):
     return _post("/friends", {"token": token})
 
 
-def set_presence(token, state, server="", instance="", mc_version=""):
+def set_presence(token, state, server="", instance="", mc_version="",
+                 mc_name=""):
     return _post("/presence", {
         "token": token, "state": state, "server": server,
-        "instance": instance, "mc_version": mc_version})
+        "instance": instance, "mc_version": mc_version,
+        "mc_name": mc_name})
 
 
 def friend_add(token, name):
@@ -98,6 +100,12 @@ def admin_users(token):
 def admin_set_license(token, user, licensed, password=""):
     return _post("/admin/license",
                  {"token": token, "user": user, "licensed": licensed,
+                  "password": password})
+
+
+def admin_ban(token, code, banned, password=""):
+    return _post("/admin/ban",
+                 {"token": token, "user": code, "banned": banned,
                   "password": password})
 
 

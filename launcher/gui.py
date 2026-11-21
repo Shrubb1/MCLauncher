@@ -2875,7 +2875,7 @@ class LauncherApp(ctk.CTk):
         login_card = self._form_card("Sign in")
         li_row = ctk.CTkFrame(login_card, fg_color="transparent")
         li_row.pack(fill="x", padx=12, pady=(0, 12))
-        li_user = ctk.CTkEntry(li_row, placeholder_text="Username", width=170, font=FONT)
+        li_user = ctk.CTkEntry(li_row, placeholder_text="Code or username", width=170, font=FONT)
         li_user.pack(side="left", padx=(0, 8))
         li_pass = ctk.CTkEntry(li_row, placeholder_text="Password",
                                show="*", width=170, font=FONT)
@@ -2899,8 +2899,11 @@ class LauncherApp(ctk.CTk):
         su_card = self._form_card("Create account")
         su_row = ctk.CTkFrame(su_card, fg_color="transparent")
         su_row.pack(fill="x", padx=12, pady=(0, 4))
-        su_user = ctk.CTkEntry(su_row, placeholder_text="Username", width=170, font=FONT)
-        su_user.pack(side="left", padx=(0, 8))
+        online = users.online_mode()
+        if not online:
+            su_user = ctk.CTkEntry(su_row, placeholder_text="Username",
+                                   width=170, font=FONT)
+            su_user.pack(side="left", padx=(0, 8))
         su_pass = ctk.CTkEntry(su_row, placeholder_text="Password (6+ chars)",
                                show="*", width=170, font=FONT)
         su_pass.pack(side="left", padx=8)
@@ -2912,20 +2915,24 @@ class LauncherApp(ctk.CTk):
             if su_pass.get() != su_pass2.get():
                 self.profile_status.configure(text="Passwords don't match")
                 return
-            err = users.create_user(su_user.get(), su_pass.get())
+            # online accounts are code-only - the server issues it and
+            # create_user persists the returned session directly
+            err = users.create_user(
+                "" if online else su_user.get(), su_pass.get())
             if err:
                 self.profile_status.configure(text=err)
                 return
-            rec = users.authenticate(su_user.get(), su_pass.get())
-            if rec and not rec.get("error"):
-                users.login(rec)
+            if not online:
+                rec = users.authenticate(su_user.get(), su_pass.get())
+                if rec and not rec.get("error"):
+                    users.login(rec)
             self._render_profile()
 
         ctk.CTkButton(su_row, text="Sign up", width=90, font=FONT,
                       command=do_signup).pack(side="left", padx=8)
-        note = ("Account on the chat server - works across PCs and unlocks "
-                "Friends. Buying the client mod flips 'licensed' on it."
-                if users.online_mode() else
+        note = ("You're issued an MCL- code on signup - that code IS your "
+                "account. Sign in and add friends with it; save it."
+                if online else
                 "Local-only account on this PC. "
                 "Buying the mod flips 'licensed'.")
         ctk.CTkLabel(su_card, text=note,
@@ -2951,6 +2958,12 @@ class LauncherApp(ctk.CTk):
         if user["admin"]:
             ctk.CTkLabel(row, text="  ·  admin", font=FONT_SMALL,
                          text_color=("gray35", "gray60")).pack(side="left")
+        if user.get("code"):
+            ctk.CTkLabel(
+                card, text=f"Account code: {user['code']} - your sign-in "
+                "identity, share it to add friends",
+                font=FONT_SMALL, text_color=("gray35", "gray60")
+            ).pack(anchor="w", padx=12, pady=(0, 8))
 
         btns = ctk.CTkFrame(card, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -2995,31 +3008,48 @@ class LauncherApp(ctk.CTk):
             acard = self._form_card("Admin - users")
             ctk.CTkLabel(
                 acard,
-                text="Type a profile username to manage its license - "
-                     "asks for your password each time.",
+                text="Manage by user code - login names and passwords are "
+                     "never shown. Asks for your password each change.",
                 font=FONT_SMALL, text_color=("gray35", "gray60"),
                 wraplength=560, justify="left").pack(
                 anchor="w", padx=12, pady=(0, 6))
             grant_row = ctk.CTkFrame(acard, fg_color="transparent")
-            grant_row.pack(fill="x", padx=12, pady=(0, 10))
+            grant_row.pack(fill="x", padx=12, pady=(0, 8))
             self.admin_grant_entry = ctk.CTkEntry(
-                grant_row, placeholder_text="username", width=160,
+                grant_row, placeholder_text="user code (MCL-…)", width=170,
                 font=FONT)
             self.admin_grant_entry.pack(side="left")
             ctk.CTkButton(
-                grant_row, text="Grant license", width=100,
+                grant_row, text="Grant", width=64,
                 font=FONT_SMALL, fg_color=("#1a7f37", "#1a7f37"),
                 hover_color=("#25a34a", "#25a34a"),
                 command=lambda: self._admin_set_license(
                     self.admin_grant_entry.get(), True)
-            ).pack(side="left", padx=8)
+            ).pack(side="left", padx=6)
             ctk.CTkButton(
-                grant_row, text="Revoke license", width=100,
+                grant_row, text="Revoke", width=64,
                 font=FONT_SMALL, fg_color=("#a33", "#a33"),
                 hover_color=("#c44", "#c44"),
                 command=lambda: self._admin_set_license(
                     self.admin_grant_entry.get(), False)
-            ).pack(side="left", padx=4)
+            ).pack(side="left", padx=2)
+            ctk.CTkButton(
+                grant_row, text="Ban", width=52,
+                font=FONT_SMALL, fg_color=("#6b1111", "#6b1111"),
+                hover_color=("#a33", "#a33"),
+                command=lambda: self._admin_set_ban(
+                    self.admin_grant_entry.get(), True)
+            ).pack(side="left", padx=6)
+            ctk.CTkButton(
+                grant_row, text="Unban", width=52,
+                font=FONT_SMALL, fg_color=PALETTE["muted"],
+                hover_color=PALETTE["muted_hover"],
+                command=lambda: self._admin_set_ban(
+                    self.admin_grant_entry.get(), False)
+            ).pack(side="left", padx=2)
+            self.admin_list = ctk.CTkFrame(acard, fg_color="transparent")
+            self.admin_list.pack(fill="x", padx=12, pady=(0, 12))
+            self._admin_load_users()
         self._refresh_session("profile")
 
     def _copy(self, text):
@@ -3065,7 +3095,88 @@ class LauncherApp(ctk.CTk):
             return
         self._render_profile()
 
-    # ------------------------------------------------------------- Friends
+    def _admin_set_ban(self, code, banned):
+        code = (code or "").strip()
+        if not code:
+            return
+        user = users.current_user()
+        if not user or not user.get("token"):
+            return
+        pw = self._admin_pw(f"{'ban' if banned else 'unban'} {code}")
+        if pw is None:
+            return
+        from . import chat
+        try:
+            r = chat.admin_ban(user["token"], code, banned, pw)
+        except Exception:
+            r = {"error": "Chat server unreachable"}
+        if r.get("error"):
+            messagebox.showerror("Ban", r["error"], parent=self)
+            return
+        self._render_profile()
+
+    def _admin_load_users(self):
+        user = users.current_user()
+        if not user or not user.get("token"):
+            return
+        token = user["token"]
+
+        def work():
+            from . import chat
+            try:
+                data = chat.admin_users(token)
+            except Exception:
+                data = {"error": "server unreachable"}
+            self.ui_call(self._fill_admin_users, data)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _fill_admin_users(self, data):
+        lst = getattr(self, "admin_list", None)
+        if not lst or not lst.winfo_exists():
+            return
+        for c in lst.winfo_children():
+            c.destroy()
+        if data.get("error"):
+            ctk.CTkLabel(lst, text=data["error"], font=FONT_SMALL,
+                         text_color=("#e05252", "#e05252")).pack(anchor="w")
+            return
+        for u in (data.get("users") or [])[:80]:
+            row = ctk.CTkFrame(lst, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+            code = u.get("code") or "?"
+            flags = []
+            if u.get("admin"):
+                flags.append("admin")
+            if u.get("licensed"):
+                flags.append("licensed")
+            if u.get("banned"):
+                flags.append("BANNED")
+            mc = u.get("mc_name") or u.get("bound_mc") or "-"
+            ctk.CTkLabel(
+                row, text=f"{code}   {mc}   {' '.join(flags)}",
+                font=FONT_SMALL,
+                text_color=("#e05252", "#e05252") if u.get("banned")
+                else ("gray20", "gray85")).pack(side="left")
+            if u.get("admin"):
+                continue  # admins can't be licensed/banned from the UI
+            ctk.CTkButton(
+                row, text="Unban" if u.get("banned") else "Ban",
+                width=56, height=20, font=FONT_SMALL,
+                fg_color=("#a33", "#a33") if not u.get("banned")
+                else PALETTE["muted"],
+                hover_color=PALETTE["muted_hover"],
+                command=lambda c=code, b=bool(u.get("banned")):
+                    self._admin_set_ban(c, not b)
+            ).pack(side="right", padx=2)
+            ctk.CTkButton(
+                row, text="Unlicense" if u.get("licensed") else "License",
+                width=66, height=20, font=FONT_SMALL,
+                fg_color=PALETTE["muted"],
+                hover_color=PALETTE["muted_hover"],
+                command=lambda c=code, l=bool(u.get("licensed")):
+                    self._admin_set_license(c, not l)
+            ).pack(side="right", padx=2)
 
     def _build_friends(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -3143,8 +3254,9 @@ class LauncherApp(ctk.CTk):
                                padx=4)
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(0, 12))
-        self.friends_name_e = ctk.CTkEntry(row, placeholder_text="Their username",
-                                           width=200, font=FONT)
+        self.friends_name_e = ctk.CTkEntry(
+            row, placeholder_text="Friend code or username",
+            width=200, font=FONT)
         self.friends_name_e.pack(side="left", padx=(0, 8))
         if getattr(self, "_friends_draft", ""):
             self.friends_name_e.insert(0, self._friends_draft)
@@ -5130,6 +5242,8 @@ class LauncherApp(ctk.CTk):
 
     def _presence_payload(self):
         """What the relay tells friends about us right now."""
+        acct = self._selected_account()
+        mc_name = (acct or {}).get("name", "")
         if self._running:
             iid = next(iter(self._running))
             inst = next((i for i in self.instances
@@ -5139,8 +5253,9 @@ class LauncherApp(ctk.CTk):
                       or self.settings.get("auto_join_server", ""))
             return {"state": "game", "server": server,
                     "instance": inst.get("name", ""),
-                    "mc_version": inst.get("mc_version", "")}
-        return {"state": "launcher"}
+                    "mc_version": inst.get("mc_version", ""),
+                    "mc_name": mc_name}
+        return {"state": "launcher", "mc_name": mc_name}
 
     def _msg_poll(self):
         """Global inbox watch: new friend requests + unread messages,

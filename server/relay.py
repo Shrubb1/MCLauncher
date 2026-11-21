@@ -117,7 +117,9 @@ def _init(db):
     """)
     # migrate: older DBs lack these columns on users
     for col, typ in (("code", "TEXT"), ("bound_mc", "TEXT DEFAULT ''"),
-                     ("bound_at", "INT DEFAULT 0")):
+                     ("bound_at", "INT DEFAULT 0"),
+                     ("banned", "INT DEFAULT 0"),
+                     ("mc_name", "TEXT DEFAULT ''")):
         try:
             db.execute(f"SELECT {col} FROM users LIMIT 1")
         except sqlite3.OperationalError:
@@ -138,12 +140,29 @@ def _user(db, name):
     return dict(r) if r else None
 
 
+def _user_by_code(db, code):
+    r = db.execute("SELECT * FROM users WHERE code=? COLLATE NOCASE",
+                   ((code or "").strip(),)).fetchone()
+    return dict(r) if r else None
+
+
+def _resolve(db, ident):
+    """Accept a login name or an account code - codes are the public
+    identity admins and friends see; names stay private."""
+    return _user(db, (ident or "").strip()) or _user_by_code(db, ident)
+
+
 def _auth(db, token):
     if not token:
         return None
     r = db.execute("SELECT name FROM sessions WHERE token=?",
                    (token,)).fetchone()
-    return r["name"] if r else None
+    if not r:
+        return None
+    rec = _user(db, r["name"])
+    if not rec or rec["banned"]:
+        return None  # banned accounts dead-end every authed endpoint
+    return r["name"]
 
 
 def _public_user(rec):
@@ -182,18 +201,25 @@ def handle(db, method, path, body):
     if method == "POST" and path == "/signup":
         name = (body.get("name") or "").strip()
         pw = body.get("password") or ""
-        if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
-            return {"error": "username must be 3-20 letters/digits/_"}
+        if name:
+            # legacy clients may still send a name - it stays private
+            if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
+                return {"error": "username must be 3-20 letters/digits/_"}
+            if _user(db, name):
+                return {"error": "username taken"}
+            code = _gen_code()
+        else:
+            # no name chosen: the account code IS the identity
+            name = code = _gen_code()
+            while _user(db, name):
+                name = code = _gen_code()
         if len(pw) < 6:
             return {"error": "password must be at least 6 characters"}
-        if _user(db, name):
-            return {"error": "username taken"}
         salt = secrets.token_bytes(16)
         db.execute(
             "INSERT INTO users(name,salt,hash,licensed,admin,created,code)"
             " VALUES(?,?,?,0,0,?,?)",
-            (name, salt.hex(), _hash(pw, salt), int(time.time()),
-             _gen_code()))
+            (name, salt.hex(), _hash(pw, salt), int(time.time()), code))
         db.commit()
         return _login(db, name, pw)
 
@@ -239,6 +265,8 @@ def handle(db, method, path, body):
             (sub,)).fetchone()
         if row:  # known identity -> straight to a session
             rec = _user(db, row["name"])
+            if rec["banned"]:
+                return {"error": "account disabled"}
             token = secrets.token_hex(24)
             db.execute("INSERT INTO sessions VALUES(?,?,?)",
                        (token, rec["name"], int(time.time())))
@@ -262,15 +290,20 @@ def handle(db, method, path, body):
         if not prow or int(time.time()) - prow["created"] > 600:
             return {"error": "sign-in expired - try again"}
         name = (body.get("name") or "").strip()
-        if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
-            return {"error": "username must be 3-20 letters/digits/_"}
-        if _user(db, name):
-            return {"error": "username taken"}
+        if name:
+            if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
+                return {"error": "username must be 3-20 letters/digits/_"}
+            if _user(db, name):
+                return {"error": "username taken"}
+            code = _gen_code()
+        else:
+            name = code = _gen_code()
+            while _user(db, name):
+                name = code = _gen_code()
         salt = secrets.token_bytes(16)
         db.execute("INSERT INTO users(name,salt,hash,licensed,admin,"
                    "created,code) VALUES(?,?,?,0,0,?,?)",
-                   (name, salt.hex(), "OAUTH", int(time.time()),
-                    _gen_code()))
+                   (name, salt.hex(), "OAUTH", int(time.time()), code))
         db.execute("INSERT INTO oauth_links VALUES(?,?,?)",
                    (prow["provider"], prow["sub"], name))
         db.execute("DELETE FROM pending WHERE token=?", (prow["token"],))
@@ -351,6 +384,11 @@ def handle(db, method, path, body):
             (me, state, str(body.get("server") or "")[:120],
              str(body.get("instance") or "")[:80],
              str(body.get("mc_version") or "")[:32], now))
+        # attach the Minecraft username they play on - admin-visible only
+        mc = re.sub(r"[^A-Za-z0-9_]", "",
+                    str(body.get("mc_name") or ""))[:16]
+        if mc:
+            db.execute("UPDATE users SET mc_name=? WHERE name=?", (mc, me))
         db.execute("DELETE FROM presence WHERE ts<?", (now - 600,))
         db.commit()
         return {"ok": True}
@@ -373,24 +411,31 @@ def handle(db, method, path, body):
         for r in rows:
             if _friend_state(db, me, r["user"]) == "incoming":
                 inc.append(r["user"])
+        # public identity is the account code - login names never leave
+        # the server, even between friends
+        pub = {}
+        for n in acc + out + inc:
+            rec = _user(db, n)
+            pub[n] = (rec.get("code") or n) if rec else n
         pres = {}
         cutoff = int(time.time()) - 90
         for r in db.execute(
                 "SELECT * FROM presence WHERE ts>=?", (cutoff,)).fetchall():
             if r["name"] in acc and r["state"] != "offline":
-                pres[r["name"]] = {
+                pres[pub.get(r["name"], r["name"])] = {
                     "state": r["state"], "server": r["server"] or "",
                     "instance": r["instance"] or "",
                     "mc_version": r["mc"] or ""}
-        return {"friends": sorted(acc, key=str.lower),
-                "outgoing": sorted(out, key=str.lower),
-                "incoming": sorted(inc, key=str.lower),
+        ident = lambda lst: sorted((pub[n] for n in lst), key=str.lower)
+        return {"friends": ident(acc),
+                "outgoing": ident(out),
+                "incoming": ident(inc),
                 "presence": pres,
                 "latest": _latest_version()}
 
     if path == "/friends/add":
         other = (body.get("friend") or "").strip()
-        rec = _user(db, other)
+        rec = _resolve(db, other)
         if not rec:
             return {"error": "no such user"}
         other = rec["name"]  # canonical case
@@ -414,7 +459,8 @@ def handle(db, method, path, body):
         return {"ok": True, "friends": bool(accept)}
 
     if path == "/friends/remove":
-        other = (body.get("friend") or "").strip()
+        rec = _resolve(db, body.get("friend"))
+        other = rec["name"] if rec else (body.get("friend") or "").strip()
         db.execute("DELETE FROM friends WHERE "
                    "(user=? COLLATE NOCASE AND friend=? COLLATE NOCASE) "
                    "OR (user=? COLLATE NOCASE AND friend=? COLLATE NOCASE)",
@@ -432,8 +478,8 @@ def handle(db, method, path, body):
         if len(sent) >= 10:
             return {"error": "slow down"}
         _RATE[me] = sent + [now]
-        rec = _user(db, to)
-        if not rec or _friend_state(db, me, to) != "friends":
+        rec = _resolve(db, to)
+        if not rec or _friend_state(db, me, rec["name"]) != "friends":
             return {"error": "not friends"}
         db.execute("INSERT INTO messages(sender, recipient, text, ts) "
                    "VALUES(?,?,?,?)", (me, rec["name"], text,
@@ -444,8 +490,8 @@ def handle(db, method, path, body):
     if path == "/messages":
         other = (body.get("with") or "").strip()
         since = int(body.get("since") or 0)
-        rec = _user(db, other)
-        if not rec or _friend_state(db, me, other) != "friends":
+        rec = _resolve(db, other)
+        if not rec or _friend_state(db, me, rec["name"]) != "friends":
             return {"error": "not friends"}
         other = rec["name"]
         rows = db.execute(
@@ -460,24 +506,51 @@ def handle(db, method, path, body):
         rec, err = _admin_auth(db, me, body.get("password") or "")
         if err:
             return err
-        target = (body.get("user") or "").strip()
-        flag = 1 if body.get("licensed") else 0
-        cur = db.execute("UPDATE users SET licensed=? WHERE name=?",
-                         (flag, target))
-        db.commit()
-        if not cur.rowcount:
+        trec = _resolve(db, body.get("user"))
+        if not trec:
             return {"error": "no such user"}
+        flag = 1 if body.get("licensed") else 0
+        db.execute("UPDATE users SET licensed=? WHERE name=?",
+                   (flag, trec["name"]))
+        db.commit()
+        return {"ok": True}
+
+    if path == "/admin/ban":
+        rec, err = _admin_auth(db, me, body.get("password") or "")
+        if err:
+            return err
+        trec = _resolve(db, body.get("user"))
+        if not trec:
+            return {"error": "no such user"}
+        if trec["name"].lower() == me.lower():
+            return {"error": "can't ban yourself"}
+        banned = 1 if body.get("banned") else 0
+        db.execute("UPDATE users SET banned=? WHERE name=?",
+                   (banned, trec["name"]))
+        if banned:  # kill live sessions + presence, not just future logins
+            db.execute("DELETE FROM sessions WHERE name=?", (trec["name"],))
+            db.execute("DELETE FROM presence WHERE name=?", (trec["name"],))
+        db.commit()
         return {"ok": True}
 
     if path == "/admin/users":
         rec = _user(db, me)
         if not rec or not rec["admin"]:
             return {"error": "not admin"}, 403
-        rows = db.execute(
-            "SELECT name, licensed, admin FROM users ORDER BY name").fetchall()
-        return {"users": [{"name": r["name"],
+        rows = db.execute("SELECT * FROM users ORDER BY created").fetchall()
+        seen = {r["name"]: r["ts"] for r in db.execute(
+            "SELECT name, ts FROM presence").fetchall()}
+        # codes + Minecraft names only - login names and credentials
+        # never leave this table
+        return {"users": [{"code": r["code"] or "",
+                           "mc_name": r["mc_name"] or "",
+                           "bound_mc": r["bound_mc"] or "",
                            "licensed": bool(r["licensed"]),
-                           "admin": bool(r["admin"])} for r in rows]}
+                           "banned": bool(r["banned"]),
+                           "admin": bool(r["admin"]),
+                           "created": int(r["created"] or 0),
+                           "last_seen": int(seen.get(r["name"]) or 0)}
+                          for r in rows]}
 
     if path == "/admin/genkeys":
         rec, err = _admin_auth(db, me, body.get("password") or "")
@@ -521,9 +594,11 @@ def _admin_auth(db, me, pw):
 
 
 def _login(db, name, pw):
-    rec = _user(db, name)
+    rec = _resolve(db, name)
     if not rec or rec["hash"] != _hash(pw, bytes.fromhex(rec["salt"])):
         return {"error": "wrong username or password"}
+    if rec["banned"]:
+        return {"error": "account disabled"}
     token = secrets.token_hex(24)
     db.execute("INSERT INTO sessions VALUES(?,?,?)",
                (token, rec["name"], int(time.time())))

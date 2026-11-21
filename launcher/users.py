@@ -88,16 +88,36 @@ def list_users() -> dict:
     return _load()
 
 
+def _rec_from(r: dict) -> dict:
+    """Server user payload -> session dict."""
+    return {"key": r["name"].lower(), "name": r["name"],
+            "licensed": bool(r.get("licensed")),
+            "admin": bool(r.get("admin")),
+            "code": r.get("code", ""),
+            "bound_mc": r.get("bound_mc", ""),
+            "bound_at": int(r.get("bound_at") or 0),
+            "token": r.get("token"), "online": True}
+
+
 def create_user(name: str, password: str,
                 licensed: bool = False, admin: bool = False) -> str:
-    """Create an account. Returns an error string, or "" on success."""
+    """Create an account. Returns an error string, or "" on success.
+
+    Online signups may pass an empty name - the server issues a code
+    that becomes the account's whole identity, and the signup response
+    is already a session which we persist here (the code wouldn't be
+    known to authenticate() otherwise)."""
     srv = _server()
     if srv is not None:
         try:
             r = srv.signup(name.strip(), password)
         except Exception:
             return "Chat server unreachable"
-        return r.get("error") or ""
+        if r.get("error"):
+            return r["error"]
+        if r.get("token"):
+            login(_rec_from(r))
+        return ""
     key = name.strip().lower()
     if not _NAME_RE.match(name.strip()):
         return "Username must be 3-20 letters, digits or _"
@@ -130,13 +150,7 @@ def authenticate(name: str, password: str) -> dict | None:
             return {"error": "Chat server unreachable"}
         if r.get("error"):
             return None
-        return {"key": r["name"].lower(), "name": r["name"],
-                "licensed": bool(r.get("licensed")),
-                "admin": bool(r.get("admin")),
-                "code": r.get("code", ""),
-                "bound_mc": r.get("bound_mc", ""),
-                "bound_at": int(r.get("bound_at") or 0),
-                "token": r.get("token"), "online": True}
+        return _rec_from(r)
     rec = _load().get(name.strip().lower())
     if not rec:
         return None
@@ -172,13 +186,7 @@ def oauth_ms_signin() -> dict:
         return r
     if r.get("error"):
         return r
-    return {"key": r["name"].lower(), "name": r["name"],
-            "licensed": bool(r.get("licensed")),
-            "admin": bool(r.get("admin")),
-            "code": r.get("code", ""),
-            "bound_mc": r.get("bound_mc", ""),
-            "bound_at": int(r.get("bound_at") or 0),
-            "token": r.get("token"), "online": True}
+    return _rec_from(r)
 
 
 def oauth_register(pending: str, name: str) -> dict:
@@ -190,13 +198,7 @@ def oauth_register(pending: str, name: str) -> dict:
         return {"error": "Chat server unreachable"}
     if r.get("error"):
         return r
-    return {"key": r["name"].lower(), "name": r["name"],
-            "licensed": bool(r.get("licensed")),
-            "admin": bool(r.get("admin")),
-            "code": r.get("code", ""),
-            "bound_mc": r.get("bound_mc", ""),
-            "bound_at": int(r.get("bound_at") or 0),
-            "token": r.get("token"), "online": True}
+    return _rec_from(r)
 
 
 def change_password(name: str, password: str) -> str:
