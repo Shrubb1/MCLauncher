@@ -24,8 +24,33 @@ import java.util.Locale;
 final class Activation {
 
     private static volatile Boolean cached;
+    private static volatile Boolean adminCached;
 
     private Activation() {
+    }
+
+    /** Launcher accounts flagged admin get the route recorder tab. Only
+     * gates the in-game tools - publishing still lives server-side. */
+    static boolean isAdmin() {
+        Boolean c = adminCached;
+        if (c != null) {
+            return c;
+        }
+        boolean ok = false;
+        try {
+            Path f = file();
+            if (Files.isRegularFile(f)) {
+                try (Reader r = Files.newBufferedReader(f)) {
+                    JsonObject root = JsonParser.parseReader(r)
+                            .getAsJsonObject();
+                    ok = root.has("admin") && root.get("admin")
+                            .getAsBoolean();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        adminCached = ok;
+        return ok;
     }
 
     static boolean isEnabled() {

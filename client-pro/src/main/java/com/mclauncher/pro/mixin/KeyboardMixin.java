@@ -4,6 +4,7 @@ import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
 import com.mclauncher.pro.path.Miner;
 import com.mclauncher.pro.path.Navigator;
+import com.mclauncher.pro.path.RouteRecorder;
 import com.mclauncher.pro.path.RouteRunner;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
@@ -41,6 +42,12 @@ public class KeyboardMixin {
         if (mc.currentScreen != null) {
             ClientMod.state.zooming = false;
             return;
+        }
+        // admin route recorder: B adds a spot (skip Ctrl+B narrator)
+        if (action == GLFW.GLFW_PRESS && key == GLFW.GLFW_KEY_B
+                && (input.modifiers() & GLFW.GLFW_MOD_CONTROL) == 0
+                && RouteRecorder.active()) {
+            RouteRecorder.capture();
         }
         if (key == GLFW.GLFW_KEY_C) {
             if (action == GLFW.GLFW_PRESS) {

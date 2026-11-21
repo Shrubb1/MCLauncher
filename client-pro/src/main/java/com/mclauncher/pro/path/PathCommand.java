@@ -1,5 +1,6 @@
 package com.mclauncher.pro.path;
 
+import com.mclauncher.client.ClientMod;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.text.Text;
@@ -83,9 +84,32 @@ public final class PathCommand {
                 }
             }
             case "route" -> {
-                if (a.length >= 2 && (a[1].equalsIgnoreCase("stop")
-                        || a[1].equalsIgnoreCase("off"))) {
-                    RouteRunner.cancel("§7[route] stopped");
+                if (a.length >= 2) {
+                    switch (a[1].toLowerCase()) {
+                        case "stop", "off" ->
+                            RouteRunner.cancel("§7[route] stopped");
+                        case "record" -> RouteRecorder.toggle();
+                        case "add" -> RouteRecorder.capture();
+                        case "clear" -> RouteRecorder.clear();
+                        case "dwell" -> {
+                            if (a.length >= 3) {
+                                try {
+                                    int s = Integer.parseInt(a[2]);
+                                    if (ClientMod.state != null) {
+                                        ClientMod.state.recordDwell =
+                                                Math.max(1, Math.min(
+                                                        600, s));
+                                        say("§7[route] dwell = "
+                                                + ClientMod.state
+                                                        .recordDwell + "s");
+                                    }
+                                } catch (NumberFormatException e) {
+                                    say("§c[route] #route dwell <s>");
+                                }
+                            }
+                        }
+                        default -> RouteRunner.start();
+                    }
                 } else {
                     RouteRunner.start();
                 }

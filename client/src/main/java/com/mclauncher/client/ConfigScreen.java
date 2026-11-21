@@ -4,6 +4,7 @@ import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 
@@ -16,8 +17,9 @@ import java.util.Map;
 /**
  * Right-Shift menu: a centered panel with a colored page sidebar,
  * launcher-style. Dashboard shows automation history pushed in by the
- * pro jar; Modules holds the widget toggles + drag-to-position; Route
- * holds the one-click mining loop.
+ * pro jar; Modules holds the widget toggles, drag-to-position, and the
+ * one-click mining route; Admin (only when activation.json grants it)
+ * holds the route recorder.
  */
 public class ConfigScreen extends Screen {
 
@@ -25,16 +27,18 @@ public class ConfigScreen extends Screen {
             "fps", "ping", "coords", "armor", "potions",
             "keystrokes", "sprint", "zoom", "fullbright", "borderless");
 
-    private static final String[] PAGES = {"Dashboard", "Modules", "Route"};
-    private static final int[] ACCENT = {0xFF4E8CFF, 0xFF35C76F, 0xFFB26BFF};
+    private static final int[] ACCENT = {0xFF4E8CFF, 0xFF35C76F,
+            0xFFFF5252};
     private static final int PANEL_BG = 0xE60E0E16;
     private static final int LINE = 0xFF2E2E40;
 
     private int page;
     private String dragging;
     private int dragOffX, dragOffY;
+    private final List<String> pages = new ArrayList<>();
     private final List<ButtonWidget> modBtns = new ArrayList<>();
-    private ButtonWidget routeBtn, doneBtn;
+    private ButtonWidget routeBtn, doneBtn, recBtn, clearBtn;
+    private TextFieldWidget dwellField;
 
     public ConfigScreen() {
         super(Text.literal("MCLauncher Client"));
@@ -50,6 +54,12 @@ public class ConfigScreen extends Screen {
     @Override
     protected void init() {
         modBtns.clear(); // init re-runs on resize - don't accumulate
+        pages.clear();
+        pages.add("Dashboard");
+        pages.add("Modules");
+        if (ClientMod.state != null && ClientMod.state.admin) {
+            pages.add("Admin");
+        }
         int[] p = panel();
         int cx = p[0] + 112, cy = p[1] + 40;
         int i = 0;
@@ -57,7 +67,7 @@ public class ConfigScreen extends Screen {
             final String mid = id;
             ButtonWidget b = ButtonWidget.builder(
                             Text.literal(label(mid)), bt -> toggle(mid, bt))
-                    .dimensions(cx + (i % 2) * 118, cy + (i / 2) * 23,
+                    .dimensions(cx + (i % 2) * 118, cy + (i / 2) * 21,
                             112, 18).build();
             modBtns.add(b);
             addDrawableChild(b);
@@ -65,8 +75,39 @@ public class ConfigScreen extends Screen {
         }
         routeBtn = ButtonWidget.builder(
                         Text.literal(routeLabel()), this::runRoute)
-                .dimensions(cx, cy + 8, 150, 20).build();
+                .dimensions(cx, cy + 108, 150, 18).build();
         addDrawableChild(routeBtn);
+        // Admin tab: route recorder controls (hidden for non-admins)
+        recBtn = ButtonWidget.builder(
+                        Text.literal(recordLabel()), this::toggleRecord)
+                .dimensions(cx, cy + 28, 140, 20).build();
+        addDrawableChild(recBtn);
+        dwellField = new TextFieldWidget(this.textRenderer, cx + 70,
+                cy + 56, 50, 18, Text.literal("dwell"));
+        dwellField.setMaxLength(3);
+        dwellField.setText(String.valueOf(
+                ClientMod.state != null ? ClientMod.state.recordDwell
+                        : 10));
+        dwellField.setChangedListener(t -> {
+            try {
+                if (ClientMod.state != null) {
+                    ClientMod.state.recordDwell =
+                            Math.max(1, Integer.parseInt(t.trim()));
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        });
+        addDrawableChild(dwellField);
+        clearBtn = ButtonWidget.builder(Text.literal("clear spots"),
+                        b -> {
+                            if (ClientMod.state != null
+                                    && ClientMod.state.recordClear
+                                            != null) {
+                                ClientMod.state.recordClear.run();
+                            }
+                        })
+                .dimensions(cx, cy + 108, 80, 18).build();
+        addDrawableChild(clearBtn);
         doneBtn = ButtonWidget.builder(Text.literal("Done"),
                         b -> close())
                 .dimensions(p[0] + p[2] - 70, p[1] + p[3] - 30,
@@ -76,12 +117,18 @@ public class ConfigScreen extends Screen {
     }
 
     private void select(int i) {
-        page = i;
+        page = Math.min(i, pages.size() - 1);
+        boolean mods = page == 1, adm = page == 2;
         for (ButtonWidget b : modBtns) {
-            b.visible = i == 1;
+            b.visible = mods;
         }
         if (routeBtn != null) {
-            routeBtn.visible = i == 2;
+            routeBtn.visible = mods;
+        }
+        if (recBtn != null) {
+            recBtn.visible = adm;
+            clearBtn.visible = adm;
+            dwellField.visible = adm;
         }
     }
 
@@ -113,6 +160,22 @@ public class ConfigScreen extends Screen {
         }
     }
 
+    private static String recordLabel() {
+        if (ClientMod.state == null
+                || ClientMod.state.recordToggle == null) {
+            return "record: pro only";
+        }
+        return "record: " + (ClientMod.state.recordOn ? "ON" : "off");
+    }
+
+    private void toggleRecord(ButtonWidget b) {
+        if (ClientMod.state != null
+                && ClientMod.state.recordToggle != null) {
+            ClientMod.state.recordToggle.run();
+            b.setMessage(Text.literal(recordLabel()));
+        }
+    }
+
     // ------------------------------------------------------------- render
 
     @Override
@@ -132,23 +195,24 @@ public class ConfigScreen extends Screen {
         ctx.fill(px + 12, py + 21, px + 80, py + 22, ACCENT[page]);
 
         // sidebar
-        for (int i = 0; i < PAGES.length; i++) {
+        for (int i = 0; i < pages.size(); i++) {
             int sy = py + 36 + i * 30;
             boolean sel = i == page;
             ctx.fill(px + 8, sy, px + 98, sy + 22,
                     sel ? ((ACCENT[i] & 0xFFFFFF) | 0x66000000)
                             : 0x66222230);
             ctx.fill(px + 8, sy, px + 11, sy + 22, ACCENT[i]);
-            ctx.drawText(this.textRenderer, PAGES[i], px + 17, sy + 7,
+            ctx.drawText(this.textRenderer, pages.get(i), px + 17, sy + 7,
                     sel ? 0xFFFFFFFF : 0xFF9A9AA8, false);
         }
         ctx.fill(px + 104, py + 8, px + 105, py + ph - 8, LINE);
 
         int cx = px + 112;
-        switch (page) {
-            case 0 -> renderDashboard(ctx, cx, py + 34, pw - 122);
-            case 1 -> renderModules(ctx, cx, py + 34);
-            case 2 -> renderRoute(ctx, cx, py + 66, pw - 122);
+        switch (pages.get(page)) {
+            case "Dashboard" ->
+                renderDashboard(ctx, cx, py + 34, pw - 122);
+            case "Modules" -> renderModules(ctx, cx, py + 34);
+            case "Admin" -> renderAdmin(ctx, cx, py + 34, pw - 122);
             default -> {
             }
         }
@@ -216,15 +280,25 @@ public class ConfigScreen extends Screen {
     }
 
     private void renderModules(DrawContext ctx, int cx, int cy) {
+        if (ClientMod.state != null && ClientMod.state.routeActive
+                && ClientMod.stats != null && ClientMod.stats.active()) {
+            ctx.drawText(this.textRenderer,
+                    "route: " + ClientMod.stats.activeDetail,
+                    cx, cy + 132, 0xFF7BE38B, false);
+        } else {
+            ctx.drawText(this.textRenderer,
+                    "route: goto -> mine -> next spot -> repeat",
+                    cx, cy + 132, 0xFF666672, false);
+        }
         ctx.drawText(this.textRenderer,
-                "Drag widget boxes to reposition:", cx, cy + 132,
+                "Drag widget boxes to reposition:", cx, cy + 150,
                 0xFF9A9AA8, false);
         Map<String, int[]> defs = Map.of(
-                "fps", new int[]{cx, cy + 146}, "ping", new int[]{cx, cy + 158},
-                "coords", new int[]{cx, cy + 170}, "armor", new int[]{cx, cy + 182},
-                "potions", new int[]{cx + 90, cy + 146},
-                "keystrokes", new int[]{cx + 90, cy + 164},
-                "sprint", new int[]{cx + 216, cy + 146});
+                "fps", new int[]{cx, cy + 164}, "ping", new int[]{cx, cy + 176},
+                "coords", new int[]{cx, cy + 188}, "armor", new int[]{cx, cy + 200},
+                "potions", new int[]{cx + 90, cy + 164},
+                "keystrokes", new int[]{cx + 90, cy + 176},
+                "sprint", new int[]{cx + 216, cy + 164});
         for (var e : defs.entrySet()) {
             String id = e.getKey();
             int[] pt = ClientMod.settings.pos(id, e.getValue()[0],
@@ -240,20 +314,23 @@ public class ConfigScreen extends Screen {
         }
     }
 
-    private void renderRoute(DrawContext ctx, int cx, int cy, int cw) {
+    private void renderAdmin(DrawContext ctx, int cx, int cy, int cw) {
+        ctx.drawText(this.textRenderer, "Route recorder", cx, cy,
+                0xFFFFFFFF, false);
         ctx.drawText(this.textRenderer,
-                "Runs the admin-published loop:", cx, cy + 30,
+                "stand at a spot, aim at the ore, press B.",
+                cx, cy + 12, 0xFF9A9AA8, false);
+        ctx.drawText(this.textRenderer, "dwell (s):", cx, cy + 62,
                 0xFF9A9AA8, false);
+        int n = ClientMod.state != null ? ClientMod.state.recordSpots : 0;
+        ctx.drawText(this.textRenderer, "spots recorded: " + n,
+                cx, cy + 86, 0xFFD8D8E0, false);
         ctx.drawText(this.textRenderer,
-                "goto a spot -> mine -> next spot -> repeat.",
-                cx, cy + 42, 0xFF666672, false);
-        if (ClientMod.state != null && ClientMod.state.routeActive
-                && ClientMod.stats != null && ClientMod.stats.active()) {
-            ctx.drawText(this.textRenderer,
-                    "running: " + ClientMod.stats.activeKind + " "
-                            + ClientMod.stats.activeDetail,
-                    cx, cy + 62, 0xFF7BE38B, false);
-        }
+                "saves to route.json - the route button runs", cx,
+                cy + 140, 0xFF666672, false);
+        ctx.drawText(this.textRenderer,
+                "your file. deploy it to publish to everyone.", cx,
+                cy + 150, 0xFF666672, false);
     }
 
     private static String fmtSecs(int s) {
@@ -275,7 +352,7 @@ public class ConfigScreen extends Screen {
         int[] p = panel();
         // sidebar page buttons
         if (mx >= p[0] + 8 && mx <= p[0] + 98) {
-            for (int i = 0; i < PAGES.length; i++) {
+            for (int i = 0; i < pages.size(); i++) {
                 int sy = p[1] + 36 + i * 30;
                 if (my >= sy && my <= sy + 22) {
                     select(i);
@@ -291,13 +368,13 @@ public class ConfigScreen extends Screen {
                     mx, my);
             if (hit == null) {
                 Map<String, int[]> defs = Map.of(
-                        "fps", new int[]{cx, cy + 146},
-                        "ping", new int[]{cx, cy + 158},
-                        "coords", new int[]{cx, cy + 170},
-                        "armor", new int[]{cx, cy + 182},
-                        "potions", new int[]{cx + 90, cy + 146},
-                        "keystrokes", new int[]{cx + 90, cy + 164},
-                        "sprint", new int[]{cx + 216, cy + 146});
+                        "fps", new int[]{cx, cy + 164},
+                        "ping", new int[]{cx, cy + 176},
+                        "coords", new int[]{cx, cy + 188},
+                        "armor", new int[]{cx, cy + 200},
+                        "potions", new int[]{cx + 90, cy + 164},
+                        "keystrokes", new int[]{cx + 90, cy + 176},
+                        "sprint", new int[]{cx + 216, cy + 164});
                 for (var e : defs.entrySet()) {
                     int[] pt = ClientMod.settings.pos(e.getKey(),
                             e.getValue()[0], e.getValue()[1]);

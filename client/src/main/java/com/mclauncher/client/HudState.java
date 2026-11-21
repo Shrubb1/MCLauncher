@@ -21,6 +21,16 @@ public class HudState {
     /** A mining route loop is running - drives the button label */
     public boolean routeActive;
 
+    /** Admin page + route recorder - pro fills these only when
+     * activation.json grants admin; regular users never see the tab */
+    public boolean admin;
+    public boolean recordOn;
+    public int recordSpots;
+    /** seconds of mining per recorded spot - the Admin page's dwell
+     * field edits this directly, the recorder reads it on capture */
+    public int recordDwell = 10;
+    public Runnable recordToggle, recordClear;
+
     public void click(int button) {
         long now = System.currentTimeMillis();
         (button == 0 ? leftClicks : rightClicks).addLast(now);

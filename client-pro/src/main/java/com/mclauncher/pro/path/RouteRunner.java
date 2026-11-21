@@ -150,14 +150,15 @@ public final class RouteRunner {
             }
             wasActive = a;
         }
-        if (!running) {
-            return;
-        }
         // free-mod config button hook - registered lazily once the
-        // shared state object exists
+        // shared state object exists. Must run before the !running
+        // bail or the button could never start the first route.
         if (ClientMod.state != null
                 && ClientMod.state.routeAction == null) {
             ClientMod.state.routeAction = RouteRunner::toggle;
+        }
+        if (!running) {
+            return;
         }
         JsonObject p = pending;
         if (p != null) {

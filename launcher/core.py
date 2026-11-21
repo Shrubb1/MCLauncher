@@ -272,7 +272,8 @@ def mc_satisfies(constraint: str, mc: str) -> bool:
 
 
 def write_client_activation(enabled: bool, names: list,
-                            version: str = "", note: str = "") -> None:
+                            version: str = "", note: str = "",
+                            admin: bool = False) -> None:
     """Activation file the client mod checks at runtime.
 
     Written on every launch and whenever the global toggle flips so the
@@ -285,7 +286,8 @@ def write_client_activation(enabled: bool, names: list,
         (CONFIG_DIR / "activation.json").write_text(
             json.dumps({"enabled": bool(enabled),
                         "names": [n for n in names if n],
-                        "version": version, "note": note}))
+                        "version": version, "note": note,
+                        "admin": bool(admin)}))
     except OSError:
         pass
 

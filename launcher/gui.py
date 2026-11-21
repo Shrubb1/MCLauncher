@@ -3684,8 +3684,10 @@ class LauncherApp(ctk.CTk):
     def _mod_toggle(self, on):
         self.settings["client_mod_enabled"] = bool(on)
         config.save_settings(self.settings)
-        bound = (users.current_user() or {}).get("bound_mc") or ""
-        core.write_client_activation(bool(on), [bound] if bound else [])
+        _u = users.current_user() or {}
+        bound = _u.get("bound_mc") or ""
+        core.write_client_activation(bool(on), [bound] if bound else [],
+                                     admin=bool(_u.get("admin")))
         self._set_status("Client mod " + ("enabled" if on else "disabled"))
 
     def _render_mod_activation(self, user):
@@ -4288,7 +4290,8 @@ class LauncherApp(ctk.CTk):
                 pass
             core.write_client_activation(
                 cmod_on, [_bound] if _u.get("licensed") and _bound else [],
-                config.APP_VERSION, _note)
+                config.APP_VERSION, _note,
+                admin=bool(_u.get("admin")))
             if cmod_on and loader_id in ("vanilla", "fabric", "quilt"):
                 jars = []
                 free_jar, why = core.client_mod_for(mc_version)

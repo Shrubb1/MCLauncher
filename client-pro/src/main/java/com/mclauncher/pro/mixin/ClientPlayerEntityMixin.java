@@ -4,6 +4,7 @@ import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
 import com.mclauncher.pro.path.Miner;
 import com.mclauncher.pro.path.Navigator;
+import com.mclauncher.pro.path.RouteRecorder;
 import com.mclauncher.pro.path.RouteRunner;
 import com.mclauncher.pro.watch.Watcher;
 import net.minecraft.client.MinecraftClient;
@@ -37,6 +38,7 @@ public class ClientPlayerEntityMixin {
         Navigator.tick(mc);
         Miner.tick(mc);
         RouteRunner.tick(mc);
+        RouteRecorder.tick(mc);
         Watcher.tick(mc);
         sprintWasHeld = apply(mc, mc.options.sprintKey,
                 ClientMod.state.sprintToggled

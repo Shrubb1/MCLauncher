@@ -16,6 +16,11 @@ public class ProMod implements ClientModInitializer {
         return Activation.isEnabled();
     }
 
+    /** activation.json admin flag - unlocks the route recorder tab. */
+    public static boolean isAdmin() {
+        return Activation.isAdmin();
+    }
+
     @Override
     public void onInitializeClient() {
         // activation is evaluated lazily once the session exists
