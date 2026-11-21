@@ -81,6 +81,14 @@ public final class Navigator {
         if (found == null) {
             path = null;
             release(mc);
+            // truly boxed in? flood-fill the reachable region through
+            // the same movement edges - a small pocket means there is
+            // no route out and retrying forever is pointless
+            if (new Pathfinder(mc.world).enclosed(feet, 500)) {
+                goal = null;
+                say("§c[path] enclosed - no way out, stopping");
+                return;
+            }
             retryAt = System.currentTimeMillis() + 4000;
             say("§c[path] can't find a way forward - retrying");
             return;
@@ -193,8 +201,11 @@ public final class Navigator {
         p.setSprinting(fwd > 0.3);
 
         // jump for step-ups and walls, and bhop on straights - moving
-        // toward a distant node on the ground covers ground faster
-        if (fwd > 0.5 && p.isOnGround()
+        // toward a distant node on the ground covers ground faster.
+        // Never while on a ladder/vine - jumping dismounts it
+        boolean onClimbable = mc.world.getBlockState(p.getBlockPos())
+                .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
+        if (fwd > 0.5 && p.isOnGround() && !onClimbable
                 && ((dy > 0.4 && hd < 2.0)
                     || (p.horizontalCollision && hd < 1.4)
                     || hd > 1.5)) {
@@ -262,6 +273,16 @@ public final class Navigator {
         repaths++;
         path = null;
         release(mc);
+        // after several failed repaths, check whether we're actually
+        // enclosed - a partial path inside a box would otherwise make
+        // us march in place forever without ever reporting it
+        if (repaths > 3
+                && new Pathfinder(mc.world)
+                        .enclosed(mc.player.getBlockPos(), 500)) {
+            goal = null;
+            say("§c[path] enclosed - no way out, stopping");
+            return;
+        }
         // never give up - escalating backoff so repeated failures at
         // the same spot don't spin the pathfinder every tick
         retryAt = System.currentTimeMillis()

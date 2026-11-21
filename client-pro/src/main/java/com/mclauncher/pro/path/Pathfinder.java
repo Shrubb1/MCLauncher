@@ -74,6 +74,12 @@ final class Pathfinder {
                 || s.isOf(net.minecraft.block.Blocks.SWEET_BERRY_BUSH);
     }
 
+    /** Ladder/vine column a player can occupy and climb. */
+    private boolean climbable(int x, int y, int z) {
+        return world.getBlockState(new BlockPos(x, y, z))
+                .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
+    }
+
     private static long key(int x, int y, int z) {
         return ((long) x & 0x3FFFFFF) | (((long) z & 0x3FFFFFF) << 26)
                 | (((long) y & 0xFFF) << 52);
@@ -141,53 +147,8 @@ final class Pathfinder {
                 }
                 return new ArrayList<>(out);
             }
-            for (int[] d : DIRS) {
-                boolean diag = d[0] != 0 && d[1] != 0;
-                int tx = n.x + d[0], tz = n.z + d[1];
-                if (diag && !(passable(n.x + d[0], n.y, n.z)
-                        && passable(n.x, n.y, n.z + d[1]))) {
-                    continue; // no corner cutting
-                }
-                double mul = diag ? 1.4 : 1.0;
-                // same level
-                if (walkable(tx, n.y, tz)) {
-                    relax(n, tx, n.y, tz, n.g + mul, goal, open, best);
-                    continue;
-                }
-                // step up 1
-                if (walkable(tx, n.y + 1, tz)
-                        && passable(n.x, n.y + 2, n.z)) {
-                    relax(n, tx, n.y + 1, tz, n.g + 1.6 * mul, goal,
-                            open, best);
-                    continue;
-                }
-                // drop <= MAX_DROP
-                boolean relaxed = false;
-                if (passable(tx, n.y, tz) && passable(tx, n.y + 1, tz)) {
-                    for (int dy = 1; dy <= MAX_DROP; dy++) {
-                        if (walkable(tx, n.y - dy, tz)) {
-                            relax(n, tx, n.y - dy, tz,
-                                    n.g + (0.6 + 0.4 * dy) * mul, goal,
-                                    open, best);
-                            relaxed = true;
-                            break;
-                        }
-                        if (!passable(tx, n.y - dy, tz)) {
-                            break; // hit a wall on the way down
-                        }
-                    }
-                }
-                if (relaxed) {
-                    continue;
-                }
-                // leap a 1-wide gap: t is air with no floor, t+2*dir lands
-                int gx = n.x + 2 * d[0], gz = n.z + 2 * d[1];
-                if (passable(tx, n.y, tz) && !ground(tx, n.y - 1, tz)
-                        && walkable(gx, n.y, gz)) {
-                    relax(n, gx, n.y, gz, n.g + 2.4 * mul, goal, open,
-                            best);
-                }
-            }
+            expand(n.x, n.y, n.z, (tx, ty, tz, cost) ->
+                    relax(n, tx, ty, tz, n.g + cost, goal, open, best));
         }
         // no full route - return the best partial path so the walker
         // still makes progress toward the goal and replans from there
@@ -199,6 +160,114 @@ final class Pathfinder {
             return new ArrayList<>(out);
         }
         return null;
+    }
+
+    /** Movement-edge generator shared by find() and enclosed():
+     * walk, step-up-1, drops to MAX_DROP, leaps over 1-3 wide gaps,
+     * and climbable columns (ladders/vines) up and down. */
+    private interface Sink {
+        void accept(int x, int y, int z, double cost);
+    }
+
+    private void expand(int x, int y, int z, Sink sink) {
+        // inside a climbable column: climb up/down first
+        if (climbable(x, y, z)) {
+            if (climbable(x, y + 1, z)) {
+                sink.accept(x, y + 1, z, 1.2);
+            }
+            if (climbable(x, y - 1, z)) {
+                sink.accept(x, y - 1, z, 1.0);
+            }
+        }
+        for (int[] d : DIRS) {
+            boolean diag = d[0] != 0 && d[1] != 0;
+            int tx = x + d[0], tz = z + d[1];
+            if (diag && !(passable(x + d[0], y, z)
+                    && passable(x, y, z + d[1]))) {
+                continue; // no corner cutting
+            }
+            double mul = diag ? 1.4 : 1.0;
+            // same level
+            if (walkable(tx, y, tz)) {
+                sink.accept(tx, y, tz, mul);
+                continue;
+            }
+            // step up 1
+            if (walkable(tx, y + 1, tz) && passable(x, y + 2, z)) {
+                sink.accept(tx, y + 1, tz, 1.6 * mul);
+                continue;
+            }
+            // grab an adjacent climbable column
+            if (!diag && climbable(tx, y, tz)) {
+                sink.accept(tx, y, tz, 1.4);
+                continue;
+            }
+            // drop <= MAX_DROP
+            boolean done = false;
+            if (passable(tx, y, tz) && passable(tx, y + 1, tz)) {
+                for (int dy = 1; dy <= MAX_DROP; dy++) {
+                    if (walkable(tx, y - dy, tz)) {
+                        sink.accept(tx, y - dy, tz,
+                                (0.6 + 0.4 * dy) * mul);
+                        done = true;
+                        break;
+                    }
+                    if (!passable(tx, y - dy, tz)) {
+                        break; // hit a wall on the way down
+                    }
+                }
+            }
+            if (done) {
+                continue;
+            }
+            // leap a gap: air blocks with no floor, landing same level
+            // or one lower. Diagonals cap at 1 wide - 1.4 is already
+            // the realistic sprint-jump diagonal
+            int maxGap = diag ? 1 : 3;
+            for (int gap = 1; gap <= maxGap; gap++) {
+                int lx = x + (gap + 1) * d[0], lz = z + (gap + 1) * d[1];
+                boolean air = true;
+                for (int i = 1; i <= gap; i++) {
+                    int ax = x + i * d[0], az = z + i * d[1];
+                    if (!passable(ax, y, az) || !passable(ax, y + 1, az)
+                            || ground(ax, y - 1, az)) {
+                        air = false;
+                        break;
+                    }
+                }
+                if (!air) {
+                    break; // further gaps are worse, not better
+                }
+                if (walkable(lx, y, lz)) {
+                    sink.accept(lx, y, lz, (1.6 + 0.6 * gap) * mul);
+                    break;
+                }
+                if (gap == 1 && passable(lx, y, lz)
+                        && walkable(lx, y - 1, lz)) {
+                    sink.accept(lx, y - 1, lz, 2.2 * mul);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Is the start truly enclosed? Flood-fills reachable positions
+     * through the same movement edges; under LIMIT nodes = boxed in.
+     * Only meaningful after find() returned null. */
+    boolean enclosed(BlockPos start, int limit) {
+        Set<Long> seen = new HashSet<>();
+        ArrayDeque<int[]> q = new ArrayDeque<>();
+        seen.add(key(start.getX(), start.getY(), start.getZ()));
+        q.add(new int[]{start.getX(), start.getY(), start.getZ()});
+        while (!q.isEmpty() && seen.size() < limit) {
+            int[] c = q.poll();
+            expand(c[0], c[1], c[2], (tx, ty, tz, cost) -> {
+                if (seen.add(key(tx, ty, tz))) {
+                    q.add(new int[]{tx, ty, tz});
+                }
+            });
+        }
+        return seen.size() < limit;
     }
 
     private void relax(Node n, int x, int y, int z, double g,
