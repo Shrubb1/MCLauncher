@@ -39,6 +39,8 @@ public final class Navigator {
     private static long retryAt;
     /** goal distance at the last waypoint - detects fruitless marches */
     private static double lastGoalDist;
+    /** a screen is currently holding the nav in pause */
+    private static boolean screenPaused;
 
     private Navigator() {
     }
@@ -54,6 +56,7 @@ public final class Navigator {
         }
         goal = target;
         nav(true);
+        screenPaused = false;
         repaths = 0;
         nodesDone = 0;
         retryAt = 0;
@@ -69,6 +72,7 @@ public final class Navigator {
         }
         goal = null;
         nav(false);
+        screenPaused = false;
         path = null;
         release(MinecraftClient.getInstance());
         say(why);
@@ -128,8 +132,16 @@ public final class Navigator {
         // any open screen (chat, inventory, pause) = pause: hands off
         // the keys until it closes, then pick up where we left off
         if (mc.currentScreen != null) {
+            if (!screenPaused) {
+                screenPaused = true;
+                say("§7[path] paused - Right Shift to stop");
+            }
             release(mc);
             return;
+        }
+        if (screenPaused) {
+            screenPaused = false;
+            say("§7[path] resumed");
         }
         if (path == null) {
             // between attempts: wait for the backoff, then replan
