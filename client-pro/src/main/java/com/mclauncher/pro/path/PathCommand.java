@@ -9,6 +9,8 @@ import net.minecraft.util.math.BlockPos;
  * "#" chat commands for the pathfinder. Swallowed locally - never sent.
  *   #goto x z        walk to column (y resolved on the ground)
  *   #goto x y z      walk to exact spot
+ *   #mine <block>    scan + etherwarp + harvest matching blocks
+ *   #mine stop       stop mining
  *   #stop / #cancel  abort
  */
 public final class PathCommand {
@@ -50,6 +52,18 @@ public final class PathCommand {
                     Navigator.start(new BlockPos(x, y, z));
                 } catch (NumberFormatException e) {
                     usage();
+                }
+            }
+            case "mine" -> {
+                if (a.length < 2) {
+                    usage();
+                    break;
+                }
+                if (a[1].equalsIgnoreCase("stop")
+                        || a[1].equalsIgnoreCase("off")) {
+                    Miner.cancel("§7[mine] stopped");
+                } else {
+                    Miner.start(a[1]);
                 }
             }
             case "stop", "cancel" -> Navigator.cancel("§7[path] cancelled");
@@ -100,6 +114,6 @@ public final class PathCommand {
     }
 
     private static void usage() {
-        say("§7[path] #goto x z | #goto x y z | #stop");
+        say("§7[path] #goto x z | #goto x y z | #mine <block> | #stop");
     }
 }

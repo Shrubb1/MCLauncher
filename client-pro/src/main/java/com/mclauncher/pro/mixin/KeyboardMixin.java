@@ -2,6 +2,7 @@ package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
+import com.mclauncher.pro.path.Miner;
 import com.mclauncher.pro.path.Navigator;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
@@ -26,9 +27,13 @@ public class KeyboardMixin {
         int key = input.key();
         // Right Shift stops the bot even with a screen open - a pause
         // shouldn't require closing the screen first to end it
-        if (action == GLFW.GLFW_PRESS && key == GLFW.GLFW_KEY_RIGHT_SHIFT
-                && Navigator.active()) {
-            Navigator.cancel("§7[path] stopped");
+        if (action == GLFW.GLFW_PRESS
+                && key == GLFW.GLFW_KEY_RIGHT_SHIFT) {
+            if (Navigator.active()) {
+                Navigator.cancel("§7[path] stopped");
+            } else if (Miner.active()) {
+                Miner.cancel("§7[mine] stopped");
+            }
         }
         if (mc.currentScreen != null) {
             ClientMod.state.zooming = false;

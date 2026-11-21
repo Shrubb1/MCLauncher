@@ -1,6 +1,6 @@
 package com.mclauncher.pro.mixin;
 
-import com.mclauncher.pro.path.Navigator;
+import com.mclauncher.client.ClientMod;
 import net.minecraft.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,7 +21,7 @@ public class EntityLookMixin {
             cancellable = true)
     private void mcl$lockLook(double cursorDeltaX, double cursorDeltaY,
                               CallbackInfo ci) {
-        if (Navigator.active()) {
+        if (ClientMod.state != null && ClientMod.state.navActive) {
             ci.cancel();
         }
     }
