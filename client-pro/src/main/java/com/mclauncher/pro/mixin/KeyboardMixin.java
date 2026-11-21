@@ -4,6 +4,7 @@ import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
 import net.minecraft.client.Keyboard;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.input.KeyInput;
 import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -15,12 +16,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class KeyboardMixin {
 
     @Inject(method = "onKey", at = @At("HEAD"))
-    private void mcl$onKey(long window, int key, int scancode, int action,
-                           int modifiers, CallbackInfo ci) {
+    private void mcl$onKey(long window, int action, KeyInput input,
+                           CallbackInfo ci) {
         if (!ProMod.isEnabled()) {
             return;
         }
         MinecraftClient mc = MinecraftClient.getInstance();
+        int key = input.key();
         if (key == GLFW.GLFW_KEY_C) {
             if (action == GLFW.GLFW_PRESS) {
                 ClientMod.state.zooming = true;

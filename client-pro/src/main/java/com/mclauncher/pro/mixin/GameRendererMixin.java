@@ -15,12 +15,12 @@ public class GameRendererMixin {
 
     @Inject(method = "getFov", at = @At("RETURN"), cancellable = true)
     private void mcl$zoom(Camera camera, float tickDelta, boolean changingFov,
-                          CallbackInfoReturnable<Double> cir) {
+                          CallbackInfoReturnable<Float> cir) {
         if (ProMod.isEnabled()
                 && ClientMod.settings.on("zoom") && ClientMod.state.zooming
                 && changingFov) {
-            cir.setReturnValue(cir.getReturnValue()
-                    / ClientMod.settings.zoomFactor);
+            cir.setReturnValue((float) (cir.getReturnValue()
+                    / ClientMod.settings.zoomFactor));
         }
     }
 }
