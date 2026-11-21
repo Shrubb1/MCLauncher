@@ -2875,7 +2875,7 @@ class LauncherApp(ctk.CTk):
         login_card = self._form_card("Sign in")
         li_row = ctk.CTkFrame(login_card, fg_color="transparent")
         li_row.pack(fill="x", padx=12, pady=(0, 12))
-        li_user = ctk.CTkEntry(li_row, placeholder_text="Code or username", width=170, font=FONT)
+        li_user = ctk.CTkEntry(li_row, placeholder_text="Username", width=170, font=FONT)
         li_user.pack(side="left", padx=(0, 8))
         li_pass = ctk.CTkEntry(li_row, placeholder_text="Password",
                                show="*", width=170, font=FONT)
@@ -2900,10 +2900,9 @@ class LauncherApp(ctk.CTk):
         su_row = ctk.CTkFrame(su_card, fg_color="transparent")
         su_row.pack(fill="x", padx=12, pady=(0, 4))
         online = users.online_mode()
-        if not online:
-            su_user = ctk.CTkEntry(su_row, placeholder_text="Username",
-                                   width=170, font=FONT)
-            su_user.pack(side="left", padx=(0, 8))
+        su_user = ctk.CTkEntry(su_row, placeholder_text="Username",
+                               width=170, font=FONT)
+        su_user.pack(side="left", padx=(0, 8))
         su_pass = ctk.CTkEntry(su_row, placeholder_text="Password (6+ chars)",
                                show="*", width=170, font=FONT)
         su_pass.pack(side="left", padx=8)
@@ -2915,10 +2914,7 @@ class LauncherApp(ctk.CTk):
             if su_pass.get() != su_pass2.get():
                 self.profile_status.configure(text="Passwords don't match")
                 return
-            # online accounts are code-only - the server issues it and
-            # create_user persists the returned session directly
-            err = users.create_user(
-                "" if online else su_user.get(), su_pass.get())
+            err = users.create_user(su_user.get(), su_pass.get())
             if err:
                 self.profile_status.configure(text=err)
                 return
@@ -2930,8 +2926,8 @@ class LauncherApp(ctk.CTk):
 
         ctk.CTkButton(su_row, text="Sign up", width=90, font=FONT,
                       command=do_signup).pack(side="left", padx=8)
-        note = ("You're issued an MCL- code on signup - that code IS your "
-                "account. Sign in and add friends with it; save it."
+        note = ("Account on the chat server - works across PCs and unlocks "
+                "Friends. Buying the client mod flips 'licensed' on it."
                 if online else
                 "Local-only account on this PC. "
                 "Buying the mod flips 'licensed'.")
@@ -2958,12 +2954,7 @@ class LauncherApp(ctk.CTk):
         if user["admin"]:
             ctk.CTkLabel(row, text="  ·  admin", font=FONT_SMALL,
                          text_color=("gray35", "gray60")).pack(side="left")
-        if user.get("code"):
-            ctk.CTkLabel(
-                card, text=f"Account code: {user['code']} - your sign-in "
-                "identity, share it to add friends",
-                font=FONT_SMALL, text_color=("gray35", "gray60")
-            ).pack(anchor="w", padx=12, pady=(0, 8))
+
 
         btns = ctk.CTkFrame(card, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=(0, 12))
@@ -3254,9 +3245,8 @@ class LauncherApp(ctk.CTk):
                                padx=4)
         row = ctk.CTkFrame(card, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(0, 12))
-        self.friends_name_e = ctk.CTkEntry(
-            row, placeholder_text="Friend code or username",
-            width=200, font=FONT)
+        self.friends_name_e = ctk.CTkEntry(row, placeholder_text="Their username",
+                                           width=200, font=FONT)
         self.friends_name_e.pack(side="left", padx=(0, 8))
         if getattr(self, "_friends_draft", ""):
             self.friends_name_e.insert(0, self._friends_draft)

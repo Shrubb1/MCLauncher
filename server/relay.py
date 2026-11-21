@@ -166,8 +166,10 @@ def _auth(db, token):
 
 
 def _public_user(rec):
+    # the account code is an admin-only handle - users never see it,
+    # not even their own
     return {"name": rec["name"], "licensed": bool(rec["licensed"]),
-            "admin": bool(rec["admin"]), "code": rec.get("code") or "",
+            "admin": bool(rec["admin"]),
             "bound_mc": rec.get("bound_mc") or "",
             "bound_at": int(rec.get("bound_at") or 0)}
 
@@ -201,25 +203,18 @@ def handle(db, method, path, body):
     if method == "POST" and path == "/signup":
         name = (body.get("name") or "").strip()
         pw = body.get("password") or ""
-        if name:
-            # legacy clients may still send a name - it stays private
-            if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
-                return {"error": "username must be 3-20 letters/digits/_"}
-            if _user(db, name):
-                return {"error": "username taken"}
-            code = _gen_code()
-        else:
-            # no name chosen: the account code IS the identity
-            name = code = _gen_code()
-            while _user(db, name):
-                name = code = _gen_code()
+        if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
+            return {"error": "username must be 3-20 letters/digits/_"}
         if len(pw) < 6:
             return {"error": "password must be at least 6 characters"}
+        if _user(db, name):
+            return {"error": "username taken"}
         salt = secrets.token_bytes(16)
         db.execute(
             "INSERT INTO users(name,salt,hash,licensed,admin,created,code)"
             " VALUES(?,?,?,0,0,?,?)",
-            (name, salt.hex(), _hash(pw, salt), int(time.time()), code))
+            (name, salt.hex(), _hash(pw, salt), int(time.time()),
+             _gen_code()))
         db.commit()
         return _login(db, name, pw)
 
@@ -290,20 +285,15 @@ def handle(db, method, path, body):
         if not prow or int(time.time()) - prow["created"] > 600:
             return {"error": "sign-in expired - try again"}
         name = (body.get("name") or "").strip()
-        if name:
-            if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
-                return {"error": "username must be 3-20 letters/digits/_"}
-            if _user(db, name):
-                return {"error": "username taken"}
-            code = _gen_code()
-        else:
-            name = code = _gen_code()
-            while _user(db, name):
-                name = code = _gen_code()
+        if not re.match(r"^[A-Za-z0-9_]{3,20}$", name):
+            return {"error": "username must be 3-20 letters/digits/_"}
+        if _user(db, name):
+            return {"error": "username taken"}
         salt = secrets.token_bytes(16)
         db.execute("INSERT INTO users(name,salt,hash,licensed,admin,"
                    "created,code) VALUES(?,?,?,0,0,?,?)",
-                   (name, salt.hex(), "OAUTH", int(time.time()), code))
+                   (name, salt.hex(), "OAUTH", int(time.time()),
+                    _gen_code()))
         db.execute("INSERT INTO oauth_links VALUES(?,?,?)",
                    (prow["provider"], prow["sub"], name))
         db.execute("DELETE FROM pending WHERE token=?", (prow["token"],))
@@ -411,25 +401,18 @@ def handle(db, method, path, body):
         for r in rows:
             if _friend_state(db, me, r["user"]) == "incoming":
                 inc.append(r["user"])
-        # public identity is the account code - login names never leave
-        # the server, even between friends
-        pub = {}
-        for n in acc + out + inc:
-            rec = _user(db, n)
-            pub[n] = (rec.get("code") or n) if rec else n
         pres = {}
         cutoff = int(time.time()) - 90
         for r in db.execute(
                 "SELECT * FROM presence WHERE ts>=?", (cutoff,)).fetchall():
             if r["name"] in acc and r["state"] != "offline":
-                pres[pub.get(r["name"], r["name"])] = {
+                pres[r["name"]] = {
                     "state": r["state"], "server": r["server"] or "",
                     "instance": r["instance"] or "",
                     "mc_version": r["mc"] or ""}
-        ident = lambda lst: sorted((pub[n] for n in lst), key=str.lower)
-        return {"friends": ident(acc),
-                "outgoing": ident(out),
-                "incoming": ident(inc),
+        return {"friends": sorted(acc, key=str.lower),
+                "outgoing": sorted(out, key=str.lower),
+                "incoming": sorted(inc, key=str.lower),
                 "presence": pres,
                 "latest": _latest_version()}
 

@@ -7,18 +7,16 @@ a GitHub Release (or send directly).
     python tools/package_release.py
 """
 
-import importlib
 import re
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
-from launcher import config  # noqa: E402
 OUT = ROOT / "release"
 STAGE = OUT / "MCLauncher"
 ZIP = OUT / "MCLauncher.zip"
@@ -45,21 +43,28 @@ def bump_version():
         raise SystemExit("APP_VERSION not found in config.py")
     new = f"{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}"
     cfg.write_text(text.replace(m.group(0), f'APP_VERSION = "{new}"'))
-    importlib.reload(config)
+    # NOTE: don't importlib.reload(config) here - same-mtime .pyc caching
+    # hands back the OLD version. callers use the returned string.
     return new
 
 
 def main():
-    print(f"version -> {bump_version()}")
+    ver = bump_version()
+    print(f"version -> {ver}")
     if STAGE.exists():
-        shutil.rmtree(STAGE, ignore_errors=True)
-        if (STAGE / ".venv").is_dir():
+        for _ in range(5):
+            shutil.rmtree(STAGE, ignore_errors=True)
+            if not STAGE.exists():
+                break
+            time.sleep(0.4)  # windows releases file locks a beat late
+        # empty leftover dirs are safe to reuse; stale FILES are not
+        if STAGE.exists() and any(f.is_file() for f in STAGE.rglob("*")):
             raise SystemExit(
-                "release/MCLauncher/.venv is locked - a copy of the app "
-                "is running from the release folder. Close it first.")
-        shutil.rmtree(STAGE, ignore_errors=True)
+                "release/MCLauncher still has files in it - a copy of "
+                "the app is probably running from the release folder. "
+                "Close it first.")
     OUT.mkdir(exist_ok=True)
-    shutil.copytree(ROOT, STAGE, ignore=ignore)
+    shutil.copytree(ROOT, STAGE, ignore=ignore, dirs_exist_ok=True)
 
     # hard fail if any live data slipped through
     for bad in ("relay.db", "users.json", "accounts.json",
@@ -77,11 +82,11 @@ def main():
     # stage the update payload for the relay image - 'fly deploy' then
     # ships it at /version + /update.zip for self-updating clients
     shutil.copy2(ZIP, ROOT / "server" / "update.zip")
-    (ROOT / "server" / "version.txt").write_text(config.APP_VERSION)
+    (ROOT / "server" / "version.txt").write_text(ver)
 
     print(f"{ZIP}  ({ZIP.stat().st_size // 1024} KB)")
     print("Contents:", sum(1 for _ in STAGE.rglob('*') if _.is_file()), "files")
-    print(f"Version: {config.APP_VERSION}  ->  server/update.zip staged")
+    print(f"Version: {ver}  ->  server/update.zip staged")
 
     if "--push" in sys.argv:
         subprocess.run(["git", "add", "-A"], cwd=ROOT, check=True)
@@ -89,7 +94,7 @@ def main():
             ["git", "-c", "user.name=Devin",
              "-c", "user.email=158243242+devin-ai-integration[bot]"
              "@users.noreply.github.com",
-             "commit", "-q", "-m", f"release v{config.APP_VERSION}"],
+             "commit", "-q", "-m", f"release v{ver}"],
             cwd=ROOT)
         subprocess.run(["git", "push", "-q"], cwd=ROOT, check=True)
         print("pushed to GitHub")
