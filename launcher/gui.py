@@ -4177,8 +4177,16 @@ class LauncherApp(ctk.CTk):
             # only activate for the bound Minecraft name
             _u = users.current_user() or {}
             _bound = _u.get("bound_mc") or ""
+            _note = ""
+            try:
+                _top = core.fetch_announcements()
+                if _top and _top[0].get("version") == config.APP_VERSION:
+                    _note = _top[0].get("title", "")
+            except Exception:
+                pass
             core.write_client_activation(
-                cmod_on, [_bound] if _u.get("licensed") and _bound else [])
+                cmod_on, [_bound] if _u.get("licensed") and _bound else [],
+                config.APP_VERSION, _note)
             if cmod_on and loader_id in ("vanilla", "fabric", "quilt"):
                 jars = []
                 free_jar, why = core.client_mod_for(mc_version)

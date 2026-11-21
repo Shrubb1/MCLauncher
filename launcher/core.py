@@ -271,18 +271,21 @@ def mc_satisfies(constraint: str, mc: str) -> bool:
     return False
 
 
-def write_client_activation(enabled: bool, names: list) -> None:
+def write_client_activation(enabled: bool, names: list,
+                            version: str = "", note: str = "") -> None:
     """Activation file the client mod checks at runtime.
 
     Written on every launch and whenever the global toggle flips so the
     on/off state and the bound-name list follow the jar even when it's
     copied outside our instances - an unbound name gets vanilla behavior.
+    version/note let the mod announce a fresh update in-game.
     """
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         (CONFIG_DIR / "activation.json").write_text(
             json.dumps({"enabled": bool(enabled),
-                        "names": [n for n in names if n]}))
+                        "names": [n for n in names if n],
+                        "version": version, "note": note}))
     except OSError:
         pass
 

@@ -29,6 +29,8 @@ public class ClientSettings {
 
     public double zoomFactor = 4.0;
     public boolean borderlessApplied = false;
+    /** last launcher version announced in-game - avoids repeat notices */
+    public String lastSeenVersion = "";
 
     public boolean on(String id) {
         // borderless changes the actual window - opt-in, off by default
@@ -74,6 +76,9 @@ public class ClientSettings {
             if (root.has("zoomFactor")) {
                 s.zoomFactor = root.get("zoomFactor").getAsDouble();
             }
+            if (root.has("lastSeenVersion")) {
+                s.lastSeenVersion = root.get("lastSeenVersion").getAsString();
+            }
         } catch (Exception ignored) {
         }
         return s;
@@ -93,6 +98,7 @@ public class ClientSettings {
         });
         root.add("positions", pos);
         root.addProperty("zoomFactor", zoomFactor);
+        root.addProperty("lastSeenVersion", lastSeenVersion);
         Path f = file();
         Files.createDirectories(f.getParent());
         try (Writer w = Files.newBufferedWriter(f)) {
