@@ -22,6 +22,10 @@ public class KeyboardMixin {
             return;
         }
         MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.currentScreen != null) {
+            ClientMod.state.zooming = false;
+            return;
+        }
         int key = input.key();
         if (key == GLFW.GLFW_KEY_C) {
             if (action == GLFW.GLFW_PRESS) {
@@ -30,8 +34,7 @@ public class KeyboardMixin {
                 ClientMod.state.zooming = false;
             }
         }
-        if (action == GLFW.GLFW_PRESS && mc.currentScreen == null
-                && mc.player != null) {
+        if (action == GLFW.GLFW_PRESS && mc.player != null) {
             if (key == GLFW.GLFW_KEY_GRAVE_ACCENT
                     && ClientMod.settings.on("sprint")) {
                 ClientMod.state.sprintToggled =
