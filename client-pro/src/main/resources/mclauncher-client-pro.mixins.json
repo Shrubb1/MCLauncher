@@ -8,7 +8,8 @@
     "KeyBindingAccessor",
     "KeyboardMixin",
     "MinecraftClientMixin",
-    "MouseMixin"
+    "MouseMixin",
+    "NetworkHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

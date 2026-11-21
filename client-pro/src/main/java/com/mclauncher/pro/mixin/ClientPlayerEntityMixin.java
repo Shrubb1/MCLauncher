@@ -2,6 +2,7 @@ package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
 import com.mclauncher.pro.ProMod;
+import com.mclauncher.pro.path.Navigator;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
@@ -30,6 +31,7 @@ public class ClientPlayerEntityMixin {
             return;
         }
         MinecraftClient mc = MinecraftClient.getInstance();
+        Navigator.tick(mc);
         sprintWasHeld = apply(mc, mc.options.sprintKey,
                 ClientMod.state.sprintToggled
                         && ClientMod.settings.on("sprint"), sprintWasHeld);
