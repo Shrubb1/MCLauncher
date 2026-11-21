@@ -186,8 +186,11 @@ public final class Navigator {
         }
 
         // progress toward the node, not just raw movement - circling
-        // or being pushed around counts as stuck
-        if (hd < bestHd - 0.05) {
+        // or being pushed around counts as stuck. Skip while airborne:
+        // a long fall makes no horizontal gain but is doing fine
+        if (!p.isOnGround()) {
+            noGain = 0;
+        } else if (hd < bestHd - 0.05) {
             bestHd = hd;
             noGain = 0;
         } else {
