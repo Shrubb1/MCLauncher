@@ -1,4 +1,4 @@
-package com.mclauncher.client.mixin;
+package com.mclauncher.pro.mixin;
 
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;

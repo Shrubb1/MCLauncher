@@ -157,8 +157,12 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
     os.makedirs(run_dir, exist_ok=True)
 
     jvm_args = _jvm_arguments(settings, ram_mb)
-    if client_mod_jar and os.path.isfile(client_mod_jar):
-        jvm_args.append(f"-Dfabric.addMods={client_mod_jar}")
+    if client_mod_jar:
+        jars = (client_mod_jar if isinstance(client_mod_jar, (list, tuple))
+                else [client_mod_jar])
+        jars = [j for j in jars if j and os.path.isfile(j)]
+        if jars:
+            jvm_args.append("-Dfabric.addMods=" + os.pathsep.join(jars))
 
     options = {
         "username": profile.get("name", "Player"),
@@ -283,10 +287,9 @@ def write_client_activation(enabled: bool, names: list) -> None:
         pass
 
 
-def client_mod_for(mc_version: str):
-    """(jar_path, None) if the bundled client mod declares compatibility
-    with mc_version, else (None, human reason)."""
-    jar = client_mod_jar()
+def _mod_decl_ok(jar: str | None, mc_version: str):
+    """(jar, None) when the jar's declared minecraft range covers
+    mc_version, else (None, human reason)."""
     if not jar:
         return None, "not installed"
     try:
@@ -301,24 +304,41 @@ def client_mod_for(mc_version: str):
     return jar, None
 
 
-def client_mod_jar() -> str | None:
-    """Stable path to the built-in client mod jar, if it exists.
+def client_mod_for(mc_version: str):
+    """Free client mod jar if compatible with mc_version."""
+    return _mod_decl_ok(client_mod_jar(), mc_version)
 
-    Ships bundled at assets/mclauncher-client.jar; copied into CONFIG_DIR
-    on first run so recipients get it without a Gradle build.
-    """
-    p = CONFIG_DIR / "mclauncher-client.jar"
+
+def client_pro_for(mc_version: str):
+    """Paid client mod jar if compatible with mc_version."""
+    return _mod_decl_ok(client_pro_jar(), mc_version)
+
+
+def _bundled_jar(name: str) -> str | None:
+    """CONFIG_DIR copy of an assets/ jar so the launch path stays fixed."""
+    p = CONFIG_DIR / name
     if not p.is_file():
         from pathlib import Path
-        bundled = (Path(__file__).resolve().parent.parent / "assets"
-                   / "mclauncher-client.jar")
+        bundled = Path(__file__).resolve().parent.parent / "assets" / name
         if bundled.is_file():
             try:
                 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(bundled, p)
             except OSError:
                 return str(bundled)
-    return str(p) if p.is_file() else None
+        else:
+            return None
+    return str(p)
+
+
+def client_mod_jar() -> str | None:
+    """Free client mod jar - ships to everyone."""
+    return _bundled_jar("mclauncher-client.jar")
+
+
+def client_pro_jar() -> str | None:
+    """Paid client mod jar - obfuscated, activation-gated at runtime."""
+    return _bundled_jar("mclauncher-client-pro.jar")
 
 
 # -------------------------------------------------------------- Worlds

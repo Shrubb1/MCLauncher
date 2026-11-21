@@ -1,6 +1,7 @@
-package com.mclauncher.client.mixin;
+package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
+import com.mclauncher.pro.ProMod;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.option.KeyBinding;
@@ -25,7 +26,7 @@ public class ClientPlayerEntityMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void mcl$toggles(CallbackInfo ci) {
-        if (!ClientMod.isEnabled()) {
+        if (!ProMod.isEnabled()) {
             return;
         }
         MinecraftClient mc = MinecraftClient.getInstance();

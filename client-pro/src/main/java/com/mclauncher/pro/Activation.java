@@ -1,7 +1,8 @@
-package com.mclauncher.client;
+package com.mclauncher.pro;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 
 import java.io.Reader;
@@ -15,6 +16,7 @@ import java.util.Locale;
  * ({enabled, names:[bound MC usernames]}) on every launch and when the
  * global toggle flips, so a jar copied into any mods folder only
  * activates for a bound Minecraft name - and only while enabled is on.
+ * Also requires the free mod so its settings/state exist.
  *
  * Evaluated lazily: the session isn't guaranteed during client init,
  * so the first call with a live session caches the verdict.
@@ -30,6 +32,10 @@ final class Activation {
         Boolean c = cached;
         if (c != null) {
             return c;
+        }
+        if (!FabricLoader.getInstance().isModLoaded("mclauncher-client")) {
+            cached = Boolean.FALSE;
+            return false;
         }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null || mc.getSession() == null) {

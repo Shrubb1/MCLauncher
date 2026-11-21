@@ -1,6 +1,7 @@
-package com.mclauncher.client.mixin;
+package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
+import com.mclauncher.pro.ProMod;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.GameRenderer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -15,7 +16,7 @@ public class GameRendererMixin {
     @Inject(method = "getFov", at = @At("RETURN"), cancellable = true)
     private void mcl$zoom(Camera camera, float tickDelta, boolean changingFov,
                           CallbackInfoReturnable<Double> cir) {
-        if (ClientMod.isEnabled()
+        if (ProMod.isEnabled()
                 && ClientMod.settings.on("zoom") && ClientMod.state.zooming
                 && changingFov) {
             cir.setReturnValue(cir.getReturnValue()

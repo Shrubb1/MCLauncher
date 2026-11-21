@@ -1,0 +1,75 @@
+plugins {
+    // -remap variant: required for obfuscated versions (<= 1.21.11)
+    id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+}
+
+version = project.mod_version
+group = 'com.mclauncher'
+
+base {
+    archivesName = 'mclauncher-client-pro'
+}
+
+configurations {
+    proguard
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_version}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    // shared infra (settings, hud state) comes from the free jar at
+    // runtime - compileOnly so it never lands inside this jar
+    compileOnly files("${rootDir}/../client/build/libs/mclauncher-client-${project.mod_version}.jar")
+    proguard "com.guardsquare:proguard-base:7.7.0"
+}
+
+processResources {
+    def version = project.version
+    inputs.property "version", version
+    filesMatching("fabric.mod.json") {
+        expand "version": version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+// obfuscate the remapped jar: keeps the entrypoint + mixin names that
+// jsons reference, renames everything else
+def obf = tasks.register("obfuscate", JavaExec) {
+    dependsOn tasks.named("remapJar")
+    group = "build"
+    def injar = tasks.named("remapJar").get().archiveFile.get().asFile
+    inputs.file(injar)
+    def outjar = layout.buildDirectory.file(
+            "libs/mclauncher-client-pro-${project.version}-obf.jar").get().asFile
+    outputs.file(outjar)
+    classpath = configurations.proguard
+    mainClass = "proguard.ProGuard"
+    doFirst {
+        def libjars = (sourceSets.main.compileClasspath.files
+                + sourceSets.main.runtimeClasspath.files)
+        args = ["-injars", injar.path, "-outjars", outjar.path,
+                "-libraryjars", libjars.join(File.pathSeparator),
+                "@${rootDir}/proguard.conf"]
+    }
+}
+tasks.named("build") { finalizedBy(obf) }
+
+// drop a stable-named copy next to the launcher data
+def copyToLauncher = tasks.register("copyToLauncher", Copy) {
+    dependsOn obf
+    def appdata = System.getenv("APPDATA")
+    if (appdata) {
+        from("${buildDir}/libs") { include "mclauncher-client-pro-*-obf.jar"; rename { "mclauncher-client-pro.jar" } }
+        into("${appdata}/MCLauncher")
+    }
+}
+tasks.named("build") { finalizedBy(copyToLauncher) }

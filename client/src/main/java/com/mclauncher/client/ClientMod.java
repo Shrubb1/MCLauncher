@@ -5,20 +5,19 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 
 /**
- * MCLauncher built-in client mod.
- * Pure client-side QoL: HUD widgets, zoom, fullbright, toggle sprint/sneak,
- * CPS counter, borderless window. Sends nothing to the server that a normal
- * client wouldn't send.
+ * MCLauncher built-in client mod - FREE tier.
+ * Read-only HUD widgets (FPS, ping, coords, armor, potions, keystrokes/CPS)
+ * and the config screen. The paid tier (zoom, fullbright, toggle
+ * sprint/sneak, borderless) lives in mclauncher-client-pro.
  */
 public class ClientMod implements ClientModInitializer {
 
     public static ClientSettings settings;
     public static HudState state;
 
-    /** Runtime gate: false unless activation.json marks this session's
-     * Minecraft name as bound and enabled. A copied jar does nothing. */
+    /** Free tier is ungated - the pro jar carries the activation check. */
     public static boolean isEnabled() {
-        return Activation.isEnabled();
+        return true;
     }
 
     @Override
@@ -37,9 +36,6 @@ public class ClientMod implements ClientModInitializer {
 
     /** Called from InGameHudMixin after vanilla HUD draws. */
     public static void renderHud(DrawContext ctx) {
-        if (!isEnabled()) {
-            return;
-        }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.options.hudHidden || mc.currentScreen != null) {
             return;

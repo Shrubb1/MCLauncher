@@ -3403,13 +3403,17 @@ class LauncherApp(ctk.CTk):
     MOD_FEATURES = [
         ("HUD widgets", "FPS, real ping, coords + facing, armor durability, "
                         "potion timers, keystrokes & CPS"),
+        ("Config screen", "Right-Shift in-game - toggles + drag widgets "
+                          "anywhere"),
+        ("Cross-instance", "one settings file shared by every instance"),
+    ]
+    MOD_PRO_FEATURES = [
         ("Zoom", "hold C + scroll to adjust (2-10x), smooth interpolation"),
         ("Fullbright", "gamma override - no options.txt edits"),
         ("Toggle sprint / sneak", "backtick = sprint, X = sneak"),
         ("Borderless window", "instant alt-tabbing, off by default"),
-        ("Config screen", "Right-Shift in-game - toggles + drag widgets "
-                          "anywhere"),
-        ("Cross-instance", "one settings file shared by every instance"),
+        ("Bound-name activation", "paid features only run on the Minecraft "
+                                  "name saved in Activation"),
     ]
 
     def _build_mod(self, parent):
@@ -3437,8 +3441,8 @@ class LauncherApp(ctk.CTk):
                          ).pack(pady=20)
             return
 
-        # features
-        fcard = self._form_card("What it does", parent=self.mod_scroll)
+        # features - free tier for everyone, pro tier when licensed
+        fcard = self._form_card("Free - for everyone", parent=self.mod_scroll)
         for title, desc in self.MOD_FEATURES:
             r = ctk.CTkFrame(fcard, fg_color="transparent")
             r.pack(fill="x", padx=12, pady=2)
@@ -3448,6 +3452,19 @@ class LauncherApp(ctk.CTk):
                          text_color=("gray35", "gray60"),
                          wraplength=430, justify="left").pack(side="left")
         ctk.CTkLabel(fcard, text="", height=4).pack()
+
+        pcard = self._form_card("Pro - licensed accounts",
+                                parent=self.mod_scroll)
+        for title, desc in self.MOD_PRO_FEATURES:
+            r = ctk.CTkFrame(pcard, fg_color="transparent")
+            r.pack(fill="x", padx=12, pady=2)
+            ctk.CTkLabel(r, text=f"•  {title}", font=FONT_BOLD,
+                         width=170, anchor="w",
+                         text_color=("#8a5bb8", "#b06be8")).pack(side="left")
+            ctk.CTkLabel(r, text=desc, font=FONT_SMALL,
+                         text_color=("gray35", "gray60"),
+                         wraplength=430, justify="left").pack(side="left")
+        ctk.CTkLabel(pcard, text="", height=4).pack()
 
         licensed = user.get("licensed")
         if not licensed:
@@ -4152,35 +4169,44 @@ class LauncherApp(ctk.CTk):
                 "setMax": lambda m: setattr(self, "_cb_max", m),
             }
 
-            # built-in client mod needs Fabric Loader underneath - vanilla
+            # built-in client mods need Fabric Loader underneath - vanilla
             # instances silently ride a Fabric runtime for the same MC version
             cmod_jar = None
             cmod_on = self.settings.get("client_mod_enabled", True)
-            want_cmod = cmod_on and (users.is_licensed() or
-                                     (inst and inst.get("client_mod")))
-            # refresh the runtime gate: copied jars honor the toggle and
+            # refresh the runtime gate: copied pro jars honor the toggle and
             # only activate for the bound Minecraft name
             _u = users.current_user() or {}
             _bound = _u.get("bound_mc") or ""
             core.write_client_activation(
                 cmod_on, [_bound] if _u.get("licensed") and _bound else [])
-            if want_cmod and loader_id in ("vanilla", "fabric", "quilt"):
-                cmod_jar, cmod_why = core.client_mod_for(mc_version)
-                if cmod_jar is None:
-                    if cmod_why and cmod_why != "not installed":
+            if cmod_on and loader_id in ("vanilla", "fabric", "quilt"):
+                jars = []
+                free_jar, why = core.client_mod_for(mc_version)
+                if free_jar:
+                    jars.append(free_jar)
+                elif why and why != "not installed":
+                    self.ui_call(self._set_status,
+                                 f"Client mod skipped - {why}")
+                if _u.get("licensed"):
+                    pro_jar, why = core.client_pro_for(mc_version)
+                    if pro_jar:
+                        jars.append(pro_jar)
+                    elif why and why != "not installed":
                         self.ui_call(self._set_status,
-                                     f"Client mod skipped - {cmod_why}")
-                elif loader_id == "vanilla":
-                    lv = core.loader_versions("fabric", mc_version,
-                                              stable_only=True) or \
-                        core.loader_versions("fabric", mc_version,
-                                             stable_only=False)
-                    if lv:
-                        loader_id, loader_version = "fabric", lv[0]
-                        version_id = core.installed_version_id(
-                            "fabric", mc_version, lv[0])
-                    else:
-                        cmod_jar = None  # no fabric for this version
+                                     f"Client mod pro skipped - {why}")
+                if jars:
+                    cmod_jar = jars
+                    if loader_id == "vanilla":
+                        lv = core.loader_versions("fabric", mc_version,
+                                                  stable_only=True) or \
+                            core.loader_versions("fabric", mc_version,
+                                                 stable_only=False)
+                        if lv:
+                            loader_id, loader_version = "fabric", lv[0]
+                            version_id = core.installed_version_id(
+                                "fabric", mc_version, lv[0])
+                        else:
+                            cmod_jar = None  # no fabric for this version
 
             if not core.is_installed(version_id, self.settings["game_dir"]):
                 self.ui_call(self._set_status, f"Installing {version_id}...")

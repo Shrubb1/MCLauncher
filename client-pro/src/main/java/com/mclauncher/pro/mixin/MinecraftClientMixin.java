@@ -1,6 +1,7 @@
-package com.mclauncher.client.mixin;
+package com.mclauncher.pro.mixin;
 
 import com.mclauncher.client.ClientMod;
+import com.mclauncher.pro.ProMod;
 import net.minecraft.client.MinecraftClient;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWVidMode;
@@ -15,7 +16,7 @@ public class MinecraftClientMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void mcl$borderless(CallbackInfo ci) {
-        if (!ClientMod.isEnabled()
+        if (!ProMod.isEnabled()
                 || !ClientMod.settings.on("borderless")
                 || ClientMod.settings.borderlessApplied) {
             return;
