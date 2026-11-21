@@ -180,7 +180,7 @@ public final class Navigator {
         // are close - turning early arcs corners instead of pivoting
         // in place on node centers
         double sx = tx, sz = tz, sdy = dy;
-        if (hd < 1.4 && idx + 1 < path.size()) {
+        if (hd < 1.8 && idx + 1 < path.size()) {
             BlockPos n = path.get(idx + 1);
             if (Math.abs(n.getY() - t.getY()) <= 1) {
                 sx = n.getX() + 0.5;
@@ -201,26 +201,50 @@ public final class Navigator {
         mc.options.backKey.setPressed(fwd < -0.2);
         mc.options.rightKey.setPressed(strafe > 0.2);   // D
         mc.options.leftKey.setPressed(strafe < -0.2);   // A
-        p.setSprinting(fwd > 0.3);
 
-        // jump for step-ups and walls, and bhop on straights - moving
-        // toward a distant node on the ground covers ground faster.
-        // Never while on a ladder/vine - jumping dismounts it
         boolean onClimbable = mc.world.getBlockState(p.getBlockPos())
                 .isIn(net.minecraft.registry.tag.BlockTags.CLIMBABLE);
         boolean inWater = p.isTouchingWater();
+        boolean lowAir = p.getAir() < 120;
+
+        // in water, vertical motion follows the camera - pitch toward
+        // the target's depth to dive or surface deliberately. Low air
+        // overrides: look up and get to the surface. On land ease the
+        // pitch back to level rather than snapping
+        if (inWater) {
+            float wantPitch = lowAir ? -80f
+                    : (float) -Math.toDegrees(Math.atan2(sdy,
+                            Math.max(0.5, Math.hypot(sdx, sdz))));
+            p.setPitch(Math.max(-85f, Math.min(85f, wantPitch)));
+        } else {
+            p.setPitch(p.getPitch() * 0.6f);
+        }
+
+        // sprint: underwater it engages the fast swim pose even at
+        // gentler headings; on land use hysteresis so the flag doesn't
+        // flicker when the heading hovers near the cutoff
+        boolean sprint = p.isSprinting();
+        if ((inWater && fwd > 0.15) || fwd > 0.45) {
+            sprint = true;
+        } else if (fwd < 0.25) {
+            sprint = false;
+        }
+        p.setSprinting(sprint);
+
+        // jump for step-ups and walls, and bhop on straights - but only
+        // when roughly on-heading, so turns don't hop sideways into
+        // walls. Never on a ladder/vine - jumping dismounts it
         if (fwd > 0.5 && p.isOnGround() && !onClimbable && !inWater
                 && ((dy > 0.4 && hd < 2.0)
                     || (p.horizontalCollision && hd < 1.4)
-                    || hd > 1.5)) {
+                    || (hd > 1.5 && Math.abs(err) < 0.45))) {
             p.jump();
         }
 
         // swim control: hold jump to rise - bobbing out onto a bank is
         // the same input, and forced ascent when air runs out.
         // getAir is in ticks; <120 = ~4s of air left
-        mc.options.jumpKey.setPressed(
-                inWater && (sdy > -0.5 || p.getAir() < 120));
+        mc.options.jumpKey.setPressed(inWater && (sdy > -0.5 || lowAir));
 
         // progress toward the node, not just raw movement - circling
         // or being pushed around counts as stuck. Skip while airborne:
