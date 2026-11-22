@@ -104,9 +104,10 @@ public class PigLureConfig {
     public static class PanicCfg {
         public boolean enabled = true;
         // word-stem matches against the spoken part of each chat line -
-        // "bot" also catches "botting", "bots", "botter"
+        // "bot" also catches "botting", "bots", "botter". "watchdog" is
+        // deliberately absent - the banned-players broadcast is routine
         public java.util.List<String> keywords = new java.util.ArrayList<>(java.util.List.of(
-                "bot", "macro", "auto", "script", "cheat", "hack", "watchdog", "afk", "report"));
+                "bot", "macro", "auto", "script", "cheat", "hack", "afk", "report"));
         public int responseDelayTicks = 6;
         public int cooldownTicks = 600;      // 30s before panic can re-trigger
         public int chatCooldownTicks = 1200; // min gap between ANY bot chat line (60s)
