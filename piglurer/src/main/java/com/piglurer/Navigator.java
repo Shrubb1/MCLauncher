@@ -83,6 +83,13 @@ public class Navigator {
         return Math.sqrt(dx * dx + dz * dz);
     }
 
+    // is the node behind the player's current facing? (dot with look vec)
+    private static boolean behindPlayer(LocalPlayer p, Vec3 node) {
+        Vec3 eye = p.getEyePosition();
+        double yaw = Math.toRadians(p.getYRot());
+        return (node.x - eye.x) * -Math.sin(yaw) + (node.z - eye.z) * Math.cos(yaw) < 0;
+    }
+
     public void tick() {
         LocalPlayer p = client.player;
         if (p == null) return;
@@ -99,10 +106,33 @@ public class Navigator {
         Vec3 pos = p.position();
         Vec3 steer = target;
         if (path != null) {
-            // 0.7b arrival: loose enough to pass through nodes without
-            // weaving back to hit each block center dead-on
-            while (pathIdx < path.size() && horizontal(pos, path.get(pathIdx)) < 0.7) pathIdx++;
-            if (pathIdx < path.size()) steer = path.get(pathIdx);
+            // drop nodes we've reached or already walked past - steering
+            // back to a passed node is what produced the spin-turns
+            while (pathIdx < path.size()) {
+                Vec3 n = path.get(pathIdx);
+                double hd = horizontal(pos, n);
+                if (hd < 0.7) {
+                    pathIdx++;
+                } else if (hd < 1.4 && behindPlayer(p, n) && pathIdx + 1 < path.size()) {
+                    pathIdx++;
+                } else {
+                    break;
+                }
+            }
+            if (pathIdx < path.size()) {
+                // pure pursuit: aim ~1.8b ahead ALONG the path (accumulated
+                // segment length, not straight-line - a lookahead measured
+                // from the player can aim through a wall on tight bends)
+                int look = pathIdx;
+                Vec3 prev = path.get(look);
+                double ahead = horizontal(pos, prev);
+                while (look + 1 < path.size() && ahead < 1.8) {
+                    look++;
+                    ahead += horizontal(prev, path.get(look));
+                    prev = path.get(look);
+                }
+                steer = path.get(look);
+            }
         }
 
         // ease toward the travel direction at the tracking rate - walking
@@ -132,8 +162,12 @@ public class Navigator {
             lastPos = pos;
         } else if (++stuckTicks > 12) {
             repath();
-            detourAngleDeg = (detourAngleDeg <= 0 ? 20 : -20);
-            detourTicks = 0;
+            // only nudge sideways when no route exists - a fresh path is
+            // the real fix, blind sidesteps read as random spins
+            if (path == null) {
+                detourAngleDeg = (detourAngleDeg <= 0 ? 20 : -20);
+                detourTicks = 0;
+            }
             stuckTicks = 0;
         }
         if (detourAngleDeg != 0 && ++detourTicks > 25) {
