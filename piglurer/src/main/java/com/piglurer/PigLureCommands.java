@@ -29,6 +29,7 @@ public final class PigLureCommands {
                 if (p == null) return 0;
                 c.getSource().sendFeedback(Component.literal("state=" + sm.state
                         + " orbs=" + Sense.countOrbs(p.getInventory(), PigLurerClient.config.orbItemName)
+                        + " buyscript=" + PigLurerClient.config.shop.steps.size() + " steps"
                         + " pos=" + p.blockPosition().toShortString()));
                 return 1;
             }))
@@ -98,6 +99,14 @@ public final class PigLureCommands {
                     c.getSource().sendFeedback(Component.literal("nav slot = " + PigLurerClient.config.shop.navSlot));
                     return 1;
                 })))
+            .then(ClientCommands.literal("recordbuy").executes(c -> {
+                // toggles: start recording your real buy clicks, or finish+save
+                sm.toggleRecording(Minecraft.getInstance());
+                return 1;
+            }).then(ClientCommands.literal("clear").executes(c -> {
+                sm.cancelRecording(Minecraft.getInstance(), true);
+                return 1;
+            })))
             .then(ClientCommands.literal("buycount")
                 .then(ClientCommands.argument("count", IntegerArgumentType.integer(-1)).executes(c -> {
                     int n = IntegerArgumentType.getInteger(c, "count");
@@ -147,7 +156,7 @@ public final class PigLureCommands {
                 })))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|navslot|buyslot|buycount|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|listgui|navslot|buyslot|buycount|orbname"));
                 return 1;
             })
         );

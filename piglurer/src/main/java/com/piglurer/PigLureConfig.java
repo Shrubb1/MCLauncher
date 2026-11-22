@@ -75,6 +75,20 @@ public class PigLureConfig {
         public int buyClicks = 1;
         public int navDelayTicks = 10;      // wait for first GUI before nav click
         public int buyDelayTicks = 12;      // wait for trade GUI before buy click
+        // recorded buy script - /piglure recordbuy captures your real clicks
+        // and replays them; when non-empty it wins over nav/buySlot config
+        public java.util.List<BuyStep> steps = new java.util.ArrayList<>();
+    }
+
+    public static class BuyStep {
+        public String type;        // block | entity | gui
+        public int delta;          // ticks to wait after the previous step
+        public int x, y, z;        // block pos / entity position
+        public String face;        // Direction name for block clicks
+        public String entityType;  // entity type id for entity clicks
+        public int slot;           // gui slot index
+        public int button;         // mouse button for gui clicks
+        public boolean shift;      // shift held -> QUICK_MOVE click
     }
 
     public static PigLureConfig load() {

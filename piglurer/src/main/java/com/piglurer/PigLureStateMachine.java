@@ -77,6 +77,116 @@ public class PigLureStateMachine {
         });
     }
 
+    // ---------- buy-sequence recorder ----------
+    // /piglure recordbuy captures your real clicks (block/entity right
+    // clicks + GUI slot clicks) with the pauses between them; restock
+    // replays the captured script instead of blind slot numbers
+
+    private boolean recording;
+    private boolean sawContainer;
+    private int recordLastTick;
+    private final java.util.List<PigLureConfig.BuyStep> pendingSteps = new java.util.ArrayList<>();
+
+    public boolean isRecording() {
+        return recording;
+    }
+
+    public void toggleRecording(Minecraft c) {
+        if (recording) finishRecording(c); else startRecording(c);
+    }
+
+    private void startRecording(Minecraft c) {
+        disable(c); // don't have the bot acting while you're demonstrating
+        pendingSteps.clear();
+        sawContainer = false;
+        recordLastTick = tick;
+        recording = true;
+        say(c, "§arecording buy - perform the purchase; it saves when the GUI closes");
+    }
+
+    private void finishRecording(Minecraft c) {
+        recording = false;
+        if (pendingSteps.isEmpty()) {
+            say(c, "recordbuy ended - nothing recorded");
+            return;
+        }
+        cfg.shop.steps.clear();
+        cfg.shop.steps.addAll(pendingSteps);
+        pendingSteps.clear();
+        cfg.save();
+        say(c, "§abuy script saved - " + cfg.shop.steps.size() + " steps");
+    }
+
+    public void cancelRecording(Minecraft c, boolean wipeSaved) {
+        recording = false;
+        pendingSteps.clear();
+        if (wipeSaved && !cfg.shop.steps.isEmpty()) {
+            cfg.shop.steps.clear();
+            cfg.save();
+            say(c, "buy script cleared - falls back to nav/buySlot config");
+        } else {
+            say(c, "recording cancelled");
+        }
+    }
+
+    // clamp each captured gap to 0.2s..4s - long pauses (walk time, typing)
+    // would otherwise bake dead time into every restock
+    private int nextDelta() {
+        int d = tick - recordLastTick;
+        recordLastTick = tick;
+        return Math.min(Math.max(d, 4), 80);
+    }
+
+    public void recordBlockClick(net.minecraft.core.BlockPos pos, net.minecraft.core.Direction face) {
+        if (!recording) return;
+        PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
+        s.type = "block";
+        s.delta = nextDelta();
+        s.x = pos.getX(); s.y = pos.getY(); s.z = pos.getZ();
+        s.face = face.name();
+        pendingSteps.add(s);
+        say(Minecraft.getInstance(), "rec #" + pendingSteps.size()
+                + " block " + pos.toShortString() + " (+" + s.delta + "t)");
+    }
+
+    public void recordEntityClick(net.minecraft.world.entity.Entity e) {
+        if (!recording) return;
+        PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
+        s.type = "entity";
+        s.delta = nextDelta();
+        s.x = (int) Math.floor(e.getX());
+        s.y = (int) Math.floor(e.getY());
+        s.z = (int) Math.floor(e.getZ());
+        s.entityType = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+                .getKey(e.getType()).toString();
+        pendingSteps.add(s);
+        say(Minecraft.getInstance(), "rec #" + pendingSteps.size()
+                + " entity " + s.entityType + " (+" + s.delta + "t)");
+    }
+
+    public void recordGuiClick(int slot, int button, boolean shift) {
+        if (!recording || slot < 0) return;
+        PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
+        s.type = "gui";
+        s.delta = nextDelta();
+        s.slot = slot;
+        s.button = button;
+        s.shift = shift;
+        pendingSteps.add(s);
+        say(Minecraft.getInstance(), "rec #" + pendingSteps.size()
+                + " gui slot " + slot + (shift ? " (shift)" : "") + " (+" + s.delta + "t)");
+    }
+
+    // closing the container = buy finished -> auto-save the script
+    private void recordingTick(Minecraft c) {
+        var scr = c.gui.screen();
+        if (scr instanceof AbstractContainerScreen) {
+            sawContainer = true;
+        } else if (sawContainer && scr == null) {
+            finishRecording(c);
+        }
+    }
+
     public PigLureStateMachine(PigLureConfig cfg) {
         this.cfg = cfg;
     }
@@ -116,6 +226,8 @@ public class PigLureStateMachine {
 
     public void disable(Minecraft c) {
         clearCtx();
+        delayed.clear();
+        delayedTasks.clear();
         if (nav != null) nav.cancel();
         transition(c, S.DISABLED, "disabled");
     }
@@ -129,6 +241,7 @@ public class PigLureStateMachine {
     public void tick(Minecraft client) {
         tick++;
         if (nav == null) nav = new Navigator(client);
+        if (recording) recordingTick(client);
         if (state == S.DISABLED) return;
 
         runDelayed();
@@ -197,6 +310,37 @@ public class PigLureStateMachine {
         nav.cancel();
 
         shopAttempts++;
+        if (!cfg.shop.steps.isEmpty()) {
+            // recorded buy script wins over the fixed-slot flow - replay
+            // the captured clicks with their original pauses
+            replayBuy(client);
+            return;
+        }
+
+        activateShop(client, target);
+
+        // multi-step GUI flow: click navSlot in the first screen to reach
+        // the trade screen, then buy - either the stack whose count matches
+        // buyCount (the bulk option) or a fixed slot
+        int extra = 0;
+        if (cfg.shop.navSlot != null) {
+            schedule(cfg.shop.navDelayTicks, () -> clickNav(client));
+            extra = Math.max(extra, cfg.shop.navDelayTicks);
+        }
+        if (cfg.shop.buyCount != null || cfg.shop.buySlot != null) {
+            int base = (cfg.shop.navSlot != null ? cfg.shop.navDelayTicks : 0)
+                    + cfg.shop.buyDelayTicks;
+            int clicks = Math.max(1, cfg.shop.buyClicks);
+            for (int i = 0; i < clicks; i++) {
+                schedule(base + i * 6, () -> clickBuy(client));
+            }
+            extra = Math.max(extra, base + (clicks - 1) * 6);
+        }
+        scheduleVerify(client, extra);
+    }
+
+    private void activateShop(Minecraft client, Vec3 target) {
+        LocalPlayer p = client.player;
         if (cfg.shop.click != null) {
             BlockPos bp = new BlockPos(cfg.shop.click[0], cfg.shop.click[1], cfg.shop.click[2]);
             Vec3 hit = Vec3.atCenterOf(bp);
@@ -214,39 +358,112 @@ public class PigLureStateMachine {
                 p.swing(InteractionHand.MAIN_HAND);
             }
         }
+    }
 
-        // multi-step GUI flow: click navSlot in the first screen to reach
-        // the trade screen, then buy - either the stack whose count matches
-        // buyCount (the bulk option) or a fixed slot
-        if (cfg.shop.navSlot != null) {
-            schedule(cfg.shop.navDelayTicks, () -> clickNav(client));
+    // replay the recorded buy script step-by-step; if the recording didn't
+    // include a right-click to open the shop, open it first via setshop's
+    // saved target so a GUI is up before the gui steps run
+    private void replayBuy(Minecraft client) {
+        boolean opensShop = cfg.shop.steps.stream().anyMatch(
+                s -> "block".equals(s.type) || "entity".equals(s.type));
+        int at = 0;
+        if (!opensShop) {
+            activateShop(client, new Vec3(cfg.shop.pos[0], cfg.shop.pos[1], cfg.shop.pos[2]));
+            at += cfg.shop.navDelayTicks;
         }
-        if (cfg.shop.buyCount != null || cfg.shop.buySlot != null) {
-            int base = (cfg.shop.navSlot != null ? cfg.shop.navDelayTicks : 0)
-                    + cfg.shop.buyDelayTicks;
-            int clicks = Math.max(1, cfg.shop.buyClicks);
-            for (int i = 0; i < clicks; i++) {
-                schedule(base + i * 6, () -> clickBuy(client));
+        for (PigLureConfig.BuyStep s : cfg.shop.steps) {
+            at += Math.min(Math.max(s.delta, 4), 80);
+            final PigLureConfig.BuyStep step = s;
+            schedule(at, () -> replayStep(client, step, 0));
+        }
+        say(client, "replaying buy script (" + cfg.shop.steps.size() + " steps)");
+        scheduleVerify(client, at);
+    }
+
+    private void replayStep(Minecraft client, PigLureConfig.BuyStep s, int retry) {
+        if (state != S.RESTOCKING) return;
+        LocalPlayer p = client.player;
+        if (p == null) return;
+        switch (s.type) {
+            case "gui" -> {
+                if (client.gui.screen() instanceof AbstractContainerScreen<?> hs) {
+                    try {
+                        client.gameMode.handleContainerInput(
+                                hs.getMenu().containerId, s.slot, s.button,
+                                s.shift ? ContainerInput.QUICK_MOVE : ContainerInput.PICKUP, p);
+                        say(client, "replay gui slot " + s.slot + (s.shift ? " (shift)" : ""));
+                    } catch (Exception e) {
+                        say(client, "replay gui click failed: " + e.getMessage());
+                    }
+                } else if (retry < 10) {
+                    // screen is still swapping - poll until it appears
+                    schedule(4, () -> replayStep(client, s, retry + 1));
+                } else {
+                    say(client, "§creplay: no GUI open for slot " + s.slot);
+                }
+            }
+            case "block" -> {
+                BlockPos bp = new BlockPos(s.x, s.y, s.z);
+                Direction face;
+                try {
+                    face = Direction.valueOf(s.face);
+                } catch (Exception e) {
+                    face = Direction.UP;
+                }
+                Vec3 hit = Vec3.atCenterOf(bp);
+                Navigator.lookAt(p, hit);
+                client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND,
+                        new BlockHitResult(hit, face, bp, false));
+                say(client, "replay block click @" + bp.toShortString());
+            }
+            case "entity" -> {
+                Entity e = findRecordedEntity(client, s);
+                if (e != null) {
+                    Navigator.lookAt(p, Sense.center(e));
+                    client.gameMode.interact(p, e, new EntityHitResult(e), InteractionHand.MAIN_HAND);
+                    say(client, "replay entity " + e.getName().getString());
+                } else {
+                    say(client, "§creplay: no " + s.entityType + " near recorded spot");
+                }
             }
         }
+    }
 
-        // busy window covers the worst-case jittered verify delay
-        shopBusyUntil = tick + cfg.shop.verifyDelayTicks + cfg.clickJitterTicks;
-        schedule(cfg.shop.verifyDelayTicks, () -> {
-            if (state != S.RESTOCKING) return;
-            int n = Sense.countOrbs(client.player.getInventory(), cfg.orbItemName);
-            if (n > 0) {
-                say(client, "restock ok (" + n + " orbs)");
-                clearCtx();
-                transition(client, S.IDLE_SCAN, "restocked");
-            } else if (shopAttempts >= cfg.shop.maxAttempts) {
-                say(client, "§cpurchase not confirmed after " + cfg.shop.maxAttempts + " tries — pausing 10s");
-                shopAttempts = 0;
-                shopBusyUntil = tick + 200;
-            } else {
-                say(client, "buy attempt " + shopAttempts + "/" + cfg.shop.maxAttempts);
-            }
-        });
+    // entity clicks are recorded as type + position - on replay find the
+    // closest entity of the same type near where it was clicked
+    private Entity findRecordedEntity(Minecraft client, PigLureConfig.BuyStep s) {
+        Entity best = null;
+        double bd = 16; // must be within 4 blocks of the recorded spot
+        for (Entity e : client.level.entitiesForRendering()) {
+            if (e == client.player) continue;
+            var key = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(e.getType());
+            if (key == null || !key.toString().equals(s.entityType)) continue;
+            double d = e.position().distanceToSqr(s.x + 0.5, s.y + 0.5, s.z + 0.5);
+            if (d < bd) { bd = d; best = e; }
+        }
+        return best;
+    }
+
+    private void scheduleVerify(Minecraft client, int extraTicks) {
+        // busy window covers the script plus the worst-case jittered delay
+        shopBusyUntil = tick + extraTicks + cfg.shop.verifyDelayTicks + cfg.clickJitterTicks;
+        schedule(extraTicks + cfg.shop.verifyDelayTicks, () -> verifyRestock(client));
+    }
+
+    private void verifyRestock(Minecraft client) {
+        if (state != S.RESTOCKING) return;
+        int n = Sense.countOrbs(client.player.getInventory(), cfg.orbItemName);
+        if (n > 0) {
+            say(client, "restock ok (" + n + " orbs)");
+            clearCtx();
+            transition(client, S.IDLE_SCAN, "restocked");
+        } else if (shopAttempts >= cfg.shop.maxAttempts) {
+            say(client, "§cpurchase not confirmed after " + cfg.shop.maxAttempts + " tries — pausing 10s");
+            shopAttempts = 0;
+            shopBusyUntil = tick + 200;
+        } else {
+            say(client, "buy attempt " + shopAttempts + "/" + cfg.shop.maxAttempts);
+        }
     }
 
     private void clickNav(Minecraft client) {
