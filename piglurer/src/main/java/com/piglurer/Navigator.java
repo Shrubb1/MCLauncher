@@ -99,7 +99,9 @@ public class Navigator {
         Vec3 pos = p.position();
         Vec3 steer = target;
         if (path != null) {
-            while (pathIdx < path.size() && horizontal(pos, path.get(pathIdx)) < 0.5) pathIdx++;
+            // 0.7b arrival: loose enough to pass through nodes without
+            // weaving back to hit each block center dead-on
+            while (pathIdx < path.size() && horizontal(pos, path.get(pathIdx)) < 0.7) pathIdx++;
             if (pathIdx < path.size()) steer = path.get(pathIdx);
         }
 
@@ -122,16 +124,19 @@ public class Navigator {
                 || p.isInWater();
         client.options.keyJump.setDown(needJump);
 
-        // stuck detection -> detour sideways for a while, then straighten out
+        // stuck -> repath around whatever's blocking (the A* sees the
+        // block, a blind 45-degree sidestep doesn't) and only nudge a
+        // little while the new path computes - no more big spins
         if (lastPos == null || pos.distanceToSqr(lastPos) > 0.01) {
             stuckTicks = 0;
             lastPos = pos;
         } else if (++stuckTicks > 12) {
-            detourAngleDeg = (detourAngleDeg <= 0 ? 45 : -60);
+            repath();
+            detourAngleDeg = (detourAngleDeg <= 0 ? 20 : -20);
             detourTicks = 0;
             stuckTicks = 0;
         }
-        if (detourAngleDeg != 0 && ++detourTicks > 50) {
+        if (detourAngleDeg != 0 && ++detourTicks > 25) {
             detourAngleDeg = 0;
             detourTicks = 0;
         }

@@ -70,14 +70,23 @@ public class PigLureStateMachine {
     }
 
     private void runDelayed() {
-        delayed.removeIf(t -> {
+        // collect due tasks and remove them BEFORE running - a task may
+        // schedule() more work, and mutating during iteration crashes
+        java.util.List<Runnable> due = null;
+        for (java.util.Iterator<int[]> it = delayed.iterator(); it.hasNext();) {
+            int[] t = it.next();
             if (t[0] <= tick) {
                 Runnable r = delayedTasks.remove(t[1]);
-                if (r != null) r.run();
-                return true;
+                if (r != null) {
+                    if (due == null) due = new java.util.ArrayList<>();
+                    due.add(r);
+                }
+                it.remove();
             }
-            return false;
-        });
+        }
+        if (due != null) {
+            for (Runnable r : due) r.run();
+        }
     }
 
     // ---------- buy-sequence recorder ----------
