@@ -9,13 +9,11 @@ import net.minecraft.client.gui.screen.narration.NarrationPart;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.MathHelper;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Right-Shift menu: a centered panel with a colored page sidebar,
@@ -37,11 +35,9 @@ public class ConfigScreen extends Screen {
     private static final int OFF = 0xFF444452; // dim accent for off/muted
 
     private int page;
-    private String dragging;
-    private int dragOffX, dragOffY;
     private final List<String> pages = new ArrayList<>();
     private final List<PanelButton> modBtns = new ArrayList<>();
-    private PanelButton routeBtn, doneBtn, recBtn, clearBtn;
+    private PanelButton routeBtn, editBtn, doneBtn, recBtn, clearBtn;
     private TextFieldWidget dwellField;
 
     public ConfigScreen() {
@@ -135,6 +131,9 @@ public class ConfigScreen extends Screen {
         }
         routeBtn = pbtn(cx, cy + 108, 150, 18, routeLabel(), ACCENT[1],
                 this::runRoute);
+        editBtn = pbtn(cx + 158, cy + 108, 150, 18, "edit gui",
+                ACCENT[1], b -> MinecraftClient.getInstance()
+                        .setScreen(new HudEditScreen()));
         // Admin tab: route recorder controls (hidden for non-admins)
         recBtn = pbtn(cx, cy + 28, 140, 20, recordLabel(), ACCENT[2],
                 this::toggleRecord);
@@ -174,6 +173,7 @@ public class ConfigScreen extends Screen {
         }
         if (routeBtn != null) {
             routeBtn.visible = mods;
+            editBtn.visible = mods;
         }
         if (recBtn != null) {
             recBtn.visible = adm;
@@ -188,9 +188,6 @@ public class ConfigScreen extends Screen {
 
     private void toggle(String id, PanelButton b) {
         ClientMod.settings.toggle(id);
-        if ("borderless".equals(id) && !ClientMod.settings.on(id)) {
-            ClientMod.settings.borderlessApplied = false;
-        }
         b.setMessage(Text.literal(label(id)));
         if (b instanceof PanelButton pb) {
             pb.accent = ClientMod.settings.on(id) ? ACCENT[1] : OFF;
@@ -350,27 +347,11 @@ public class ConfigScreen extends Screen {
                     cx, cy + 132, 0xFF666672, false);
         }
         ctx.drawText(this.textRenderer,
-                "Drag widget boxes to reposition:", cx, cy + 150,
-                0xFF9A9AA8, false);
-        Map<String, int[]> defs = Map.of(
-                "fps", new int[]{cx, cy + 164}, "ping", new int[]{cx, cy + 176},
-                "coords", new int[]{cx, cy + 188}, "armor", new int[]{cx, cy + 200},
-                "potions", new int[]{cx + 90, cy + 164},
-                "keystrokes", new int[]{cx + 90, cy + 176},
-                "sprint", new int[]{cx + 216, cy + 164});
-        for (var e : defs.entrySet()) {
-            String id = e.getKey();
-            int[] pt = ClientMod.settings.pos(id, e.getValue()[0],
-                    e.getValue()[1]);
-            int w = id.equals("keystrokes") ? 110 : 80;
-            int h = id.equals("keystrokes") ? 32 : 10;
-            boolean on = ClientMod.settings.on(id);
-            ctx.fill(pt[0] - 2, pt[1] - 2, pt[0] + w + 2, pt[1] + h + 2,
-                    on ? 0x88336699 : 0x55444444);
-            ctx.drawText(this.textRenderer,
-                    on ? id : id + " (off)", pt[0], pt[1] + 1,
-                    on ? 0xFFFFFFFF : 0xFF888888, false);
-        }
+                "edit gui opens the layout editor - drag HUD", cx,
+                cy + 150, 0xFF666672, false);
+        ctx.drawText(this.textRenderer,
+                "widgets where you want them.", cx, cy + 160,
+                0xFF666672, false);
     }
 
     private void renderAdmin(DrawContext ctx, int cx, int cy, int cw) {
@@ -419,65 +400,7 @@ public class ConfigScreen extends Screen {
                 }
             }
         }
-        // drag handles only exist on the Modules page
-        if (page == 1) {
-            int cx = p[0] + 112, cy = p[1] + 34;
-            String hit = HudRenderer.widgetAt(ClientMod.settings,
-                    net.minecraft.client.MinecraftClient.getInstance(),
-                    mx, my);
-            if (hit == null) {
-                Map<String, int[]> defs = Map.of(
-                        "fps", new int[]{cx, cy + 164},
-                        "ping", new int[]{cx, cy + 176},
-                        "coords", new int[]{cx, cy + 188},
-                        "armor", new int[]{cx, cy + 200},
-                        "potions", new int[]{cx + 90, cy + 164},
-                        "keystrokes", new int[]{cx + 90, cy + 176},
-                        "sprint", new int[]{cx + 216, cy + 164});
-                for (var e : defs.entrySet()) {
-                    int[] pt = ClientMod.settings.pos(e.getKey(),
-                            e.getValue()[0], e.getValue()[1]);
-                    int w = e.getKey().equals("keystrokes") ? 110 : 80;
-                    int h = e.getKey().equals("keystrokes") ? 32 : 10;
-                    if (mx >= pt[0] && mx <= pt[0] + w
-                            && my >= pt[1] && my <= pt[1] + h) {
-                        hit = e.getKey();
-                        break;
-                    }
-                }
-            }
-            if (hit != null) {
-                dragging = hit;
-                int[] pt = ClientMod.settings.pos(hit, 0, 0);
-                dragOffX = (int) mx - pt[0];
-                dragOffY = (int) my - pt[1];
-                return true;
-            }
-        }
         return super.mouseClicked(click, doubled);
-    }
-
-    @Override
-    public boolean mouseDragged(Click click, double dx, double dy) {
-        if (dragging != null) {
-            int[] pt = ClientMod.settings.pos(dragging, 0, 0);
-            pt[0] = MathHelper.clamp((int) click.x() - dragOffX, 0,
-                    this.width - 20);
-            pt[1] = MathHelper.clamp((int) click.y() - dragOffY, 0,
-                    this.height - 10);
-            return true;
-        }
-        return super.mouseDragged(click, dx, dy);
-    }
-
-    @Override
-    public boolean mouseReleased(Click click) {
-        if (dragging != null) {
-            dragging = null;
-            ClientMod.saveQuiet();
-            return true;
-        }
-        return super.mouseReleased(click);
     }
 
     @Override

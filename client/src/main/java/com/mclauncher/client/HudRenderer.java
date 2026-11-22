@@ -8,6 +8,7 @@ import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.MathHelper;
 
+import java.util.List;
 import java.util.Map;
 
 /** Draws the draggable HUD widgets. Positions live in ClientSettings. */
@@ -110,23 +111,40 @@ public final class HudRenderer {
                 x, y + 18, 0xFFFFFFFF, true);
     }
 
-    /** Hit-test used by the config screen for dragging. */
+    /** Default anchors for the positionable widgets. */
+    private static final List<String> IDS = List.of(
+            "fps", "ping", "coords", "armor", "potions", "keystrokes",
+            "sprint");
+    private static final Map<String, int[]> DEFS = Map.of(
+            "fps", new int[]{4, 4}, "ping", new int[]{4, 16},
+            "coords", new int[]{4, 28}, "armor", new int[]{4, 40},
+            "potions", new int[]{4, 52}, "keystrokes", new int[]{4, 80},
+            "sprint", new int[]{4, 130});
+
+    public static List<String> widgetIds() {
+        return IDS;
+    }
+
+    /** {x, y, w, h} of a widget's box at its current position. */
+    public static int[] bounds(ClientSettings s, String id) {
+        int[] d = DEFS.get(id);
+        int[] p = s.pos(id, d[0], d[1]);
+        int w = id.equals("keystrokes") ? 110 : 80;
+        int h = id.equals("keystrokes") ? 32 : 10;
+        return new int[]{p[0], p[1], w, h};
+    }
+
+    /** Hit-test used by the HUD editor for dragging. */
     public static String widgetAt(ClientSettings s, MinecraftClient mc,
                                   double mx, double my) {
-        Map<String, int[]> defaults = Map.of(
-                "fps", new int[]{4, 4}, "ping", new int[]{4, 16},
-                "coords", new int[]{4, 28}, "armor", new int[]{4, 40},
-                "potions", new int[]{4, 52}, "keystrokes", new int[]{4, 80},
-                "sprint", new int[]{4, 130});
-        for (var e : defaults.entrySet()) {
-            if (!s.on(e.getKey())) {
+        for (String id : DEFS.keySet()) {
+            if (!s.on(id)) {
                 continue;
             }
-            int[] p = s.pos(e.getKey(), e.getValue()[0], e.getValue()[1]);
-            int w = e.getKey().equals("keystrokes") ? 110 : 80;
-            int h = e.getKey().equals("keystrokes") ? 32 : 10;
-            if (mx >= p[0] && mx <= p[0] + w && my >= p[1] && my <= p[1] + h) {
-                return e.getKey();
+            int[] b = bounds(s, id);
+            if (mx >= b[0] && mx <= b[0] + b[2]
+                    && my >= b[1] && my <= b[1] + b[3]) {
+                return id;
             }
         }
         return null;
