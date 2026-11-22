@@ -118,6 +118,26 @@ public final class PigLureCommands {
                     c.getSource().sendFeedback(Component.literal("herd style = " + style));
                     return 1;
                 })))
+            .then(ClientCommands.literal("listgui").executes(c -> {
+                // dump the open container's slots so navslot/buyslot numbers
+                // are exact - index, count, name
+                net.minecraft.client.Minecraft mc = Minecraft.getInstance();
+                if (!(mc.gui.screen() instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?> hs)) {
+                    c.getSource().sendFeedback(Component.literal("no container GUI open"));
+                    return 0;
+                }
+                var menu = hs.getMenu();
+                int i = 0;
+                for (net.minecraft.world.inventory.Slot s : menu.slots) {
+                    var st = s.getItem();
+                    if (!st.isEmpty()) {
+                        c.getSource().sendFeedback(Component.literal(
+                                i + ": x" + st.getCount() + " " + st.getHoverName().getString()));
+                    }
+                    i++;
+                }
+                return 1;
+            }))
             .then(ClientCommands.literal("orbname")
                 .then(ClientCommands.argument("name", StringArgumentType.greedyString()).executes(c -> {
                     PigLurerClient.config.orbItemName = StringArgumentType.getString(c, "name");
