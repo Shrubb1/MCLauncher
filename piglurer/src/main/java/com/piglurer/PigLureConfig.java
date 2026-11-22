@@ -78,6 +78,37 @@ public class PigLureConfig {
     // then only stay if the tab list shows Players (N) <= maxPlayers
     public HubCfg hub = new HubCfg();
 
+    // enderchest stash: when the inventory fills up, open each page and
+    // shift-click everything except the keep-names (Shiny Orbs/Tokens
+    // can't go into the ec anyway, so they must be excluded)
+    public StashCfg stash = new StashCfg();
+
+    // panic: a chat line from someone else containing your IGN -> send a
+    // random response then leave; a bot keyword -> leave instantly
+    public PanicCfg panic = new PanicCfg();
+
+    public static class PanicCfg {
+        public boolean enabled = true;
+        // word-stem matches against the spoken part of each chat line -
+        // "bot" also catches "botting", "bots", "botter"
+        public java.util.List<String> keywords = new java.util.ArrayList<>(java.util.List.of(
+                "bot", "macro", "auto", "script", "cheat", "hack", "watchdog", "afk", "report"));
+        public int responseDelayTicks = 6;
+        public int cooldownTicks = 600;      // 30s before panic can re-trigger
+    }
+
+    public static class StashCfg {
+        public boolean enabled = true;
+        public java.util.List<String> pages = new java.util.ArrayList<>(
+                java.util.List.of("ec 1", "ec 2", "ec 3"));
+        public java.util.List<String> keepNames = new java.util.ArrayList<>(
+                java.util.List.of("Shiny Orb", "Shiny Token"));
+        public int guiWaitTicks = 60;        // ~3s for the ec GUI to open
+        public int clickDelayTicks = 4;      // gap between shift-clicks (+jitter)
+        public int closeDelayTicks = 12;
+        public int button = 0;               // QUICK_MOVE button: 0=shift-left
+    }
+
     public static class HubCfg {
         public double[] pos = null;         // walk-to spot after /hub (sethub)
         public java.util.List<BuyStep> steps = new java.util.ArrayList<>(); // recordhub script

@@ -227,9 +227,37 @@ public final class PigLureCommands {
                     c.getSource().sendFeedback(Component.literal("orb item name = " + PigLurerClient.config.orbItemName));
                     return 1;
                 })))
+            .then(ClientCommands.literal("stash").executes(c -> {
+                // force an enderchest stash run right now (bot must be started)
+                sm.forceStash(Minecraft.getInstance());
+                return 1;
+            }))
+            .then(ClientCommands.literal("stashkeep")
+                // items whose name contains these strings never get shift-
+                // clicked into the enderchest
+                .then(ClientCommands.argument("name", StringArgumentType.greedyString()).executes(c -> {
+                    String name = StringArgumentType.getString(c, "name").trim();
+                    if (!name.isEmpty()) {
+                        PigLurerClient.config.stash.keepNames.add(name);
+                        PigLurerClient.config.save();
+                    }
+                    c.getSource().sendFeedback(Component.literal(
+                            "keep names = " + PigLurerClient.config.stash.keepNames));
+                    return 1;
+                }))
+                .executes(c -> {
+                    c.getSource().sendFeedback(Component.literal(
+                            "keep names = " + PigLurerClient.config.stash.keepNames));
+                    return 1;
+                }))
+            .then(ClientCommands.literal("panic").executes(c -> {
+                // simulate a keyword bail: /hub then the hub-change routine
+                sm.testPanic(Minecraft.getInstance());
+                return 1;
+            }))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|sethub|setgoal|goalmode|herdstyle|recordbuy|recordhub|recordpath|pathpoint|patrol|hubplayers|playercount|pigdebug|listgui|navslot|buyslot|buycount|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|sethub|setgoal|goalmode|herdstyle|recordbuy|recordhub|recordpath|pathpoint|patrol|hubplayers|playercount|pigdebug|listgui|navslot|buyslot|buycount|orbname|stash|stashkeep|panic"));
                 return 1;
             })
         );

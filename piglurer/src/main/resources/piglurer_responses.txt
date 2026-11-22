@@ -1,0 +1,251 @@
+# One response per line. The bot picks a random line when someone says
+# its name in chat; it never repeats the same line within ~100 picks.
+# Add as many lines as you like - more variety = better.
+yo
+yeah?
+sup
+what's up
+hey
+hi
+hm?
+?
+yes?
+what do you need
+can i help you
+sorry, half afk lol
+one sec
+just farming
+grindin pigs
+shiny pig hunt rn
+u called?
+someone say my name?
+you rang?
+who me
+talking to me?
+what
+wassup
+heyo
+hello
+hiii
+sup sup
+yeah im here
+on my grind
+busy rn
+kinda busy
+cant chat rn
+focused rn
+pig hunting
+chasing shiny pigs
+this minigame is brutal
+spawn rates suck today
+been farming for an hour lol
+just vibing
+lol
+lmao
+nice
+true
+fr
+fair enough
+oh?
+interesting
+didnt see that
+you sure?
+probably
+maybe
+idk
+dunno
+no idea
+shrug
+hmm
+weird
+lol ok
+ok
+k
+gotcha
+right
+aight
+yea
+ye
+yep
+nah
+nope
+sure
+cool
+bet
+say less
+wyd
+whats good
+nothing much
+not much
+just chilling
+chillin
+relaxing
+half paying attention tbh
+watching yt while farming
+multitasking
+sorry distracted
+was looking away
+was reading chat
+what happened
+missed it
+say again
+run that back
+come again?
+did u say something
+whats that
+who said that
+where
+huh
+wait what
+no way
+really?
+for real?
+you mean me?
+thats me
+hi im here
+present
+yep thats me
+guilty
+im innocent
+wasnt me
+not me
+someone else
+wrong person
+must be a different guy
+new here?
+first time?
+been a while
+hows it going
+how are you
+hows your day
+good luck out there
+glhf
+gl
+gg
+nice pig
+seen any shinies?
+any pigs spawn lately?
+this lobby seems dead
+quiet lobby
+empty lobby huh
+peaceful in here
+love it when its quiet
+finally a quiet lobby
+good farming spot this
+the grind never stops
+orb time
+more orbs more pigs
+shiny time
+piggy time
+oink
+lol oink
+bacon grinding
+pork time
+sorry gtg soon
+gotta go in a bit
+last few runs
+wrapping up soon
+almost done for the day
+one more lap
+couple more pigs then im out
+catch you later maybe
+seeya
+laters
+peace
+gn
+night
+morning grind
+early farming
+up early for pigs
+lol whoops
+my bad
+oops
+oopsie
+did i do that
+accident
+misclicked
+stuck on a fence lol
+these hedges are a maze
+this map is confusing
+still learning the layout
+which way is the shop again
+always forget where the shop is
+the shopkeeper is a pig how weird is that
+skyblock things
+hypixel life
+just a casual player
+nothing to see here
+jk
+jk jk
+lmao im kidding
+kidding
+no worries
+its fine
+all good
+we good
+ok cool
+sounds good
+for sure
+definitely
+absolutely
+maybe later
+not now tho
+later later
+in a bit
+sec
+one moment
+hold on
+gimme a sec
+be right there
+omw
+coming
+wait for me
+dont wait up
+carry on
+you do you
+have fun
+enjoy
+stay safe
+watch out
+careful out there
+heard
+heard you
+loud and clear
+reading you
+copy that
+roger
+ayy
+ayyy
+heyo heyo
+oh hi
+oh hey
+well hello
+fancy seeing you
+small world
+again?
+you again
+we meet again
+third time today
+stop following me lol
+are u stalking me
+following me around huh
+everywhere i go
+cant escape you
+leave me alone lol
+im just tryna farm
+let me farm in peace
+pls let me farm
+i need these pigs
+the pigs are mine
+all my pigs
+hands off my pigs
+my pigs not yours
+find your own pigs
+there are other lobbies
+go away lol
+shoo
+skedaddle
+bye
+cya
+smell ya later
+im out soon anyway

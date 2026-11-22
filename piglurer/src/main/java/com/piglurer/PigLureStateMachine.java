@@ -221,6 +221,75 @@ public class PigLureStateMachine {
     private Vec3 lastPathPoint;
     private final java.util.List<double[]> pendingPath = new java.util.ArrayList<>();
 
+    // enderchest stash flow, driven inside IDLE_SCAN like the hub flow:
+    // 1 send next /ec page | 2 wait for container | 3 clicks queued |
+    // 4 page done -> next
+    private int stashPhase;
+    private int stashPage;
+    private int stashPhaseUntil;
+    private int lastInvCheck;
+
+    // panic: someone in chat says our IGN or a bot keyword. IGN -> quip
+    // then leave, keyword -> leave instantly. Both bail via /hub + the
+    // recorded hub-change routine
+    private int panicCooldownUntil;
+    private final java.util.ArrayDeque<Integer> recentResponses = new java.util.ArrayDeque<>();
+
+    // someone spoke our name - respond, then escape
+    public void panicMention(Minecraft client) {
+        if (!cfg.panic.enabled || tick < panicCooldownUntil || state == S.DISABLED) return;
+        panicCooldownUntil = tick + cfg.panic.cooldownTicks;
+        String response = pickResponse();
+        say(client, "§cIGN mentioned - responding then leaving");
+        schedule(2, () -> {
+            if (client.player != null) client.player.connection.sendChat(response);
+        });
+        schedule(2 + cfg.panic.responseDelayTicks, () -> panicEscape(client, "said our name"));
+    }
+
+    // a bot keyword showed up in chat - silence, just leave
+    public void panicKeyword(Minecraft client, String word) {
+        if (!cfg.panic.enabled || tick < panicCooldownUntil || state == S.DISABLED) return;
+        panicCooldownUntil = tick + cfg.panic.cooldownTicks;
+        panicEscape(client, "'" + word + "' in chat");
+    }
+
+    // instant bail: /hub then the recorded hub-change routine, exactly
+    // like a no-pig lap - drops whatever pig/stash/nav work was running
+    private void panicEscape(Minecraft client, String reason) {
+        if (client.player == null) return;
+        say(client, "§cpanic: " + reason + " - leaving");
+        clearCtx();
+        pigFoundThisLap = false;
+        patrolIndex = -1;
+        stashPhase = 0;
+        client.player.connection.sendCommand("hub");
+        transition(client, S.IDLE_SCAN, "panic escape");
+        hubPhase = 1;
+        hubPhaseUntil = tick + cfg.hubWaitTicks;
+    }
+
+    // random line from config/piglurer_responses.txt; never repeats one
+    // already used within the last ~100 picks
+    private String pickResponse() {
+        java.util.List<String> list = PigLurerClient.panicResponses;
+        if (list == null || list.isEmpty()) return "yo";
+        int cap = Math.max(1, Math.min(100, list.size() - 1));
+        java.util.List<Integer> ok = new java.util.ArrayList<>();
+        for (int i = 0; i < list.size(); i++) {
+            if (!recentResponses.contains(i)) ok.add(i);
+        }
+        if (ok.isEmpty()) {
+            // fewer lines than the window - drop old picks and reuse
+            while (recentResponses.size() > cap / 2) recentResponses.poll();
+            return pickResponse();
+        }
+        int pick = ok.get((int) (Math.random() * ok.size()));
+        recentResponses.addLast(pick);
+        while (recentResponses.size() > cap) recentResponses.poll();
+        return list.get(pick);
+    }
+
     public boolean isRecordingPath() {
         return recordingPath;
     }
@@ -503,6 +572,8 @@ public class PigLureStateMachine {
         relobbyCount = 0;
         fastLaps = 0;
         pigFoundThisLap = false;
+        panicCooldownUntil = 0;
+        stashPhase = 0;
         // don't run in a populated lobby - check the tab count first and
         // re-lobby before doing anything else
         int n = hubPlayerCount(c);
@@ -571,6 +642,22 @@ public class PigLureStateMachine {
                 && Sense.countOrbs(p.getInventory(), cfg.orbItemName) < cfg.restockThreshold) {
             transition(client, S.CHECK_ORBS, "orbs ran out");
             return;
+        }
+        // enderchest stash - a full inventory pauses patrol while each ec
+        // page gets filled; keep-named items (orbs/tokens) stay behind
+        if (hubPhase == 0 && stashPhase != 0) {
+            tickStash(client);
+            return;
+        }
+        if (hubPhase == 0 && cfg.stash.enabled && tick - lastInvCheck >= 20) {
+            lastInvCheck = tick;
+            if (inventoryFull(p)) {
+                say(client, "inventory full - stashing into enderchest");
+                nav.cancel();
+                stashPage = 0;
+                stashPhase = 1;
+                return;
+            }
         }
         if (tick - lastScanTick >= cfg.scanIntervalTicks) {
             lastScanTick = tick;
@@ -1115,6 +1202,117 @@ public class PigLureStateMachine {
             orbClicked = true;
             orbCooldownUntil = tick + 8;
         });
+    }
+
+    // ---------- enderchest stash ----------
+
+    private void tickStash(Minecraft client) {
+        LocalPlayer p = client.player;
+        if (p == null) { stashPhase = 0; return; }
+        switch (stashPhase) {
+            case 1 -> { // open the next ec page
+                if (stashPage >= cfg.stash.pages.size()) {
+                    stashPhase = 0;
+                    say(client, "stash done");
+                    return;
+                }
+                String cmd = cfg.stash.pages.get(stashPage).trim();
+                if (cmd.startsWith("/")) cmd = cmd.substring(1);
+                p.connection.sendCommand(cmd);
+                say(client, "stash: /" + cmd);
+                stashPhase = 2;
+                stashPhaseUntil = tick + cfg.stash.guiWaitTicks;
+            }
+            case 2 -> { // wait for the enderchest container
+                if (client.gui.screen() instanceof AbstractContainerScreen<?> hs) {
+                    stashPhase = 3;
+                    stashPhaseUntil = queueStashClicks(client, hs);
+                } else if (tick >= stashPhaseUntil) {
+                    say(client, "stash: no GUI opened - skipping page " + (stashPage + 1));
+                    stashPhase = 4;
+                    stashPhaseUntil = tick + cfg.stash.closeDelayTicks;
+                }
+            }
+            case 3 -> { // shift-clicks still draining from the queue
+                if (tick >= stashPhaseUntil) {
+                    client.gui.setScreen(null); // closes the container properly
+                    stashPhase = 4;
+                    stashPhaseUntil = tick + cfg.stash.closeDelayTicks;
+                }
+            }
+            case 4 -> { // settle, then next page
+                if (tick >= stashPhaseUntil) {
+                    stashPage++;
+                    stashPhase = 1;
+                }
+            }
+        }
+    }
+
+    // shift-click every player-inventory slot that isn't a keep-name.
+    // returns the tick the click queue should be done by
+    private int queueStashClicks(Minecraft client, AbstractContainerScreen<?> hs) {
+        LocalPlayer p = client.player;
+        var menu = hs.getMenu();
+        int cid = menu.containerId;
+        java.util.List<Integer> targets = new java.util.ArrayList<>();
+        for (int i = 0; i < menu.slots.size(); i++) {
+            var s = menu.slots.get(i);
+            if (s.container != p.getInventory()) continue; // only OUR slots
+            ItemStack st = s.getItem();
+            if (st.isEmpty()) continue;
+            String name = st.getHoverName().getString().toLowerCase();
+            if (keepStashItem(name)) continue;
+            targets.add(i);
+        }
+        if (targets.isEmpty()) {
+            say(client, "stash: nothing to move on this page");
+            return tick + 2;
+        }
+        int at = 0;
+        for (int slot : targets) {
+            at += cfg.stash.clickDelayTicks;
+            schedule(at, () -> {
+                try {
+                    client.gameMode.handleContainerInput(cid, slot,
+                            cfg.stash.button, ContainerInput.QUICK_MOVE, p);
+                } catch (Exception e) {
+                    say(client, "stash click failed: " + e.getMessage());
+                }
+            });
+        }
+        say(client, "stash: moving " + targets.size() + " stack(s)");
+        return tick + at + cfg.clickJitterTicks + 8;
+    }
+
+    private boolean keepStashItem(String lowerName) {
+        if (lowerName.contains(cfg.orbItemName.toLowerCase())) return true;
+        for (String k : cfg.stash.keepNames) {
+            if (!k.isEmpty() && lowerName.contains(k.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    private boolean inventoryFull(LocalPlayer p) {
+        Inventory inv = p.getInventory();
+        for (int i = 0; i < 36; i++) { // main inventory + hotbar
+            if (inv.getItem(i).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    // /piglure stash - force a stash run now (test)
+    public void forceStash(Minecraft c) {
+        if (c.player == null) return;
+        say(c, "stash test - inventory is "
+                + (inventoryFull(c.player) ? "full" : "not full, running anyway"));
+        stashPage = 0;
+        stashPhase = 1;
+    }
+
+    // /piglure panic - simulate a keyword bail (test)
+    public void testPanic(Minecraft c) {
+        panicEscape(c, "panic test");
     }
 
     private void warnThrottled(Minecraft c, String msg) {
