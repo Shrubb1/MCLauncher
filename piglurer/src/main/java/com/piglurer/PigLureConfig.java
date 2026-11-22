@@ -57,6 +57,18 @@ public class PigLureConfig {
     // exact same tick each loop - 0 disables
     public int clickJitterTicks = 5;
 
+    // patrol: while scanning, walk the recorded waypoints in a loop; a full
+    // lap with no pig found triggers /hub for a fresh lobby
+    public PathCfg path = new PathCfg();
+    public boolean hubRelobby = true;
+    public int hubWaitTicks = 160;          // ~8s for the lobby swap
+    public int hubScanTicks = 200;          // ~10s stationary scan after re-lobby
+
+    public static class PathCfg {
+        public boolean enabled = true;
+        public java.util.List<double[]> waypoints = new java.util.ArrayList<>(); // [x,y,z]
+    }
+
     public static class GoalCfg {
         public String mode = "lastClickPos";
         public double[] pos = null;         // [x,y,z] for mode=fixed

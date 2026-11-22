@@ -30,6 +30,7 @@ public final class PigLureCommands {
                 c.getSource().sendFeedback(Component.literal("state=" + sm.state
                         + " orbs=" + Sense.countOrbs(p.getInventory(), PigLurerClient.config.orbItemName)
                         + " buyscript=" + PigLurerClient.config.shop.steps.size() + " steps"
+                        + " wps=" + PigLurerClient.config.path.waypoints.size()
                         + " pos=" + p.blockPosition().toShortString()));
                 return 1;
             }))
@@ -107,6 +108,24 @@ public final class PigLureCommands {
                 sm.cancelRecording(Minecraft.getInstance(), true);
                 return 1;
             })))
+            .then(ClientCommands.literal("recordpath").executes(c -> {
+                // toggles: records your position as you run the patrol route
+                sm.togglePathRecording(Minecraft.getInstance());
+                return 1;
+            }).then(ClientCommands.literal("clear").executes(c -> {
+                sm.cancelPathRecording(Minecraft.getInstance(), true);
+                return 1;
+            })))
+            .then(ClientCommands.literal("pathpoint").executes(c -> {
+                sm.addPathPoint(Minecraft.getInstance());
+                return 1;
+            }))
+            .then(ClientCommands.literal("patrol").executes(c -> {
+                PigLurerClient.config.path.enabled = !PigLurerClient.config.path.enabled;
+                PigLurerClient.config.save();
+                c.getSource().sendFeedback(Component.literal("patrol = " + PigLurerClient.config.path.enabled));
+                return 1;
+            }))
             .then(ClientCommands.literal("buycount")
                 .then(ClientCommands.argument("count", IntegerArgumentType.integer(-1)).executes(c -> {
                     int n = IntegerArgumentType.getInteger(c, "count");
@@ -156,7 +175,7 @@ public final class PigLureCommands {
                 })))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|listgui|navslot|buyslot|buycount|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|recordpath|pathpoint|patrol|listgui|navslot|buyslot|buycount|orbname"));
                 return 1;
             })
         );

@@ -97,6 +97,8 @@ public class PigLureStateMachine {
 
     private void startRecording(Minecraft c) {
         disable(c); // don't have the bot acting while you're demonstrating
+        recordingPath = false; // one recorder at a time
+        pendingPath.clear();
         pendingSteps.clear();
         sawContainer = false;
         recordLastTick = tick;
@@ -187,6 +189,152 @@ public class PigLureStateMachine {
         }
     }
 
+    // ---------- patrol + path recorder ----------
+    // while IDLE_SCAN, walk the recorded waypoints in a loop (pausing for
+    // pig jobs); a full lap finding nothing -> /hub for a fresh lobby
+
+    private int patrolIndex = -1;      // -1 = snap to nearest waypoint
+    private int waypointStuckAt;       // tick we set off for the current wp
+    private int lapStartTick;
+    private int fastLaps;              // sub-5s laps (degenerate tight loop)
+    private int patrolWaitUntil;       // post-/hub stationary scan window
+
+    private boolean recordingPath;
+    private Vec3 lastPathPoint;
+    private final java.util.List<double[]> pendingPath = new java.util.ArrayList<>();
+
+    public boolean isRecordingPath() {
+        return recordingPath;
+    }
+
+    public void togglePathRecording(Minecraft c) {
+        if (recordingPath) finishPathRecording(c); else startPathRecording(c);
+    }
+
+    private void startPathRecording(Minecraft c) {
+        disable(c);
+        recording = false; // one recorder at a time
+        pendingSteps.clear();
+        pendingPath.clear();
+        lastPathPoint = null;
+        recordingPath = true;
+        say(c, "§arecording path - run your patrol route, /piglure recordpath again to save");
+    }
+
+    private void finishPathRecording(Minecraft c) {
+        recordingPath = false;
+        if (pendingPath.isEmpty()) {
+            say(c, "recordpath ended - nothing recorded");
+            return;
+        }
+        cfg.path.waypoints.clear();
+        cfg.path.waypoints.addAll(pendingPath);
+        pendingPath.clear();
+        cfg.save();
+        patrolIndex = -1;
+        say(c, "§apath saved - " + cfg.path.waypoints.size() + " waypoints");
+    }
+
+    public void cancelPathRecording(Minecraft c, boolean wipeSaved) {
+        recordingPath = false;
+        pendingPath.clear();
+        if (wipeSaved && !cfg.path.waypoints.isEmpty()) {
+            cfg.path.waypoints.clear();
+            cfg.save();
+            patrolIndex = -1;
+            say(c, "patrol path cleared");
+        } else {
+            say(c, "path recording cancelled");
+        }
+    }
+
+    // add your current position as a single waypoint (precise picking)
+    public void addPathPoint(Minecraft c) {
+        if (c.player == null) return;
+        Vec3 pos = c.player.position();
+        cfg.path.waypoints.add(new double[] { pos.x, pos.y, pos.z });
+        cfg.save();
+        say(c, "waypoint #" + cfg.path.waypoints.size() + " " + fmt(pos));
+    }
+
+    private void pathRecordingTick(Minecraft c) {
+        if (c.player == null) return;
+        Vec3 pos = c.player.position();
+        // keep a point every ~4 blocks moved - smooths the route without
+        // flooding it with a point per tick
+        if (lastPathPoint == null || pos.distanceTo(lastPathPoint) >= 4.0) {
+            lastPathPoint = pos;
+            pendingPath.add(new double[] { pos.x, pos.y, pos.z });
+            say(c, "path #" + pendingPath.size() + " " + fmt(pos));
+        }
+    }
+
+    private void tickPatrol(Minecraft client) {
+        LocalPlayer p = client.player;
+        java.util.List<double[]> wps = cfg.path.waypoints;
+        if (!cfg.path.enabled || wps.isEmpty()) return;
+        if (tick < patrolWaitUntil) return; // standing still scanning post-/hub
+
+        if (patrolIndex < 0 || patrolIndex >= wps.size()) {
+            patrolIndex = nearestWaypoint(p, wps);
+            waypointStuckAt = tick;
+            lapStartTick = tick;
+        }
+        double[] w = wps.get(patrolIndex);
+        Vec3 wp = new Vec3(w[0], w[1], w[2]);
+
+        if (p.position().distanceTo(wp) < 2.0) {
+            advancePatrol(client, wps.size());
+            return;
+        }
+        if (tick - waypointStuckAt > 240) { // ~12s - unreachable, skip it
+            say(client, "patrol: waypoint " + (patrolIndex + 1) + " unreachable - skipping");
+            advancePatrol(client, wps.size());
+            return;
+        }
+        nav.setTarget(wp.add(0, 0.001, 0), 1.5);
+    }
+
+    private void advancePatrol(Minecraft client, int n) {
+        patrolIndex++;
+        if (patrolIndex >= n) {
+            patrolIndex = 0;
+            boolean realLap = tick - lapStartTick >= 100; // >=5s spent patrolling
+            if (realLap) {
+                fastLaps = 0;
+                onPatrolLap(client);
+            } else if (++fastLaps >= 3) {
+                // degenerate path (points too close) still counts after 3
+                fastLaps = 0;
+                onPatrolLap(client);
+            }
+            lapStartTick = tick;
+        }
+        waypointStuckAt = tick;
+    }
+
+    private void onPatrolLap(Minecraft client) {
+        if (!cfg.hubRelobby || client.player == null) {
+            say(client, "patrol lap done, no pig - looping");
+            return;
+        }
+        say(client, "patrol lap done, no pig - /hub for a fresh lobby");
+        client.player.connection.sendCommand("hub");
+        // lobby swap eats most of hubWaitTicks; then stand still and scan
+        patrolWaitUntil = tick + cfg.hubWaitTicks + cfg.hubScanTicks;
+    }
+
+    private int nearestWaypoint(LocalPlayer p, java.util.List<double[]> wps) {
+        int best = 0;
+        double bd = Double.MAX_VALUE;
+        for (int i = 0; i < wps.size(); i++) {
+            double[] w = wps.get(i);
+            double d = p.position().distanceToSqr(w[0], w[1], w[2]);
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+
     public PigLureStateMachine(PigLureConfig cfg) {
         this.cfg = cfg;
     }
@@ -221,6 +369,9 @@ public class PigLureStateMachine {
 
     public void enable(Minecraft c) {
         clearCtx();
+        patrolIndex = -1;
+        patrolWaitUntil = 0;
+        fastLaps = 0;
         transition(c, S.CHECK_ORBS, "enabled");
     }
 
@@ -242,6 +393,7 @@ public class PigLureStateMachine {
         tick++;
         if (nav == null) nav = new Navigator(client);
         if (recording) recordingTick(client);
+        if (recordingPath) pathRecordingTick(client);
         if (state == S.DISABLED) return;
 
         runDelayed();
@@ -277,17 +429,22 @@ public class PigLureStateMachine {
             transition(client, S.CHECK_ORBS, "orbs ran out");
             return;
         }
-        if (tick - lastScanTick < cfg.scanIntervalTicks) return;
-        lastScanTick = tick;
-
-        String ourName = p.getName().getString();
-        Pig found = Sense.findShinyPig(client.level, p.position(), cfg, ourName);
-        if (found == null) return;
-
-        clearCtx();
-        pig = found;
-        transition(client, S.APPROACHING_PIG,
-                "pig @" + fmt(found.position()) + " dist=" + String.format("%.1f", found.position().distanceTo(p.position())));
+        if (tick - lastScanTick >= cfg.scanIntervalTicks) {
+            lastScanTick = tick;
+            String ourName = p.getName().getString();
+            Pig found = Sense.findShinyPig(client.level, p.position(), cfg, ourName);
+            if (found != null) {
+                // pause the patrol for the pig job; resume from the nearest
+                // waypoint afterwards (herding may have dragged us elsewhere)
+                patrolIndex = -1;
+                clearCtx();
+                pig = found;
+                transition(client, S.APPROACHING_PIG,
+                        "pig @" + fmt(found.position()) + " dist=" + String.format("%.1f", found.position().distanceTo(p.position())));
+                return;
+            }
+        }
+        tickPatrol(client);
     }
 
     private void tickRestocking(Minecraft client) {
