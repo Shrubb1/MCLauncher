@@ -687,6 +687,10 @@ public class PigLureStateMachine {
     // says nothing otherwise)
     public void onGameChat(String text) {
         if (!enabled()) return;
+        // our own status lines loop back through this listener - they
+        // contain trigger words ("orb expired", "hub change script") and
+        // re-firing on them is an infinite recursion crash
+        if (text.startsWith("[PigLure]")) return;
         String l = text.toLowerCase();
         // "the orb expired" (or despawned/disappeared) while we still have
         // a pending orb - bail the lobby and start over
@@ -708,9 +712,11 @@ public class PigLureStateMachine {
     // the orb timed out before the token landed - /hub for a fresh lobby,
     // then patrol picks up from the nearest waypoint like a no-pig lap
     private void expireOrb(Minecraft client) {
-        say(client, "§corb expired - /hub and restarting");
+        // clear context BEFORE speaking - the say line carries trigger
+        // words and must never be able to re-enter this path
         clearCtx();
         patrolIndex = -1;
+        say(client, "§corb expired - /hub and restarting");
         transition(client, S.IDLE_SCAN, "orb expired");
         beginRelobby(client, "orb expired");
     }
