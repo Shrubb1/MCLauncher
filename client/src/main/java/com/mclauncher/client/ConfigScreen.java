@@ -1,9 +1,12 @@
 package com.mclauncher.client;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.client.gui.screen.narration.NarrationPart;
+import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
@@ -31,13 +34,14 @@ public class ConfigScreen extends Screen {
             0xFFFF5252};
     private static final int PANEL_BG = 0xE60E0E16;
     private static final int LINE = 0xFF2E2E40;
+    private static final int OFF = 0xFF444452; // dim accent for off/muted
 
     private int page;
     private String dragging;
     private int dragOffX, dragOffY;
     private final List<String> pages = new ArrayList<>();
-    private final List<ButtonWidget> modBtns = new ArrayList<>();
-    private ButtonWidget routeBtn, doneBtn, recBtn, clearBtn;
+    private final List<PanelButton> modBtns = new ArrayList<>();
+    private PanelButton routeBtn, doneBtn, recBtn, clearBtn;
     private TextFieldWidget dwellField;
 
     public ConfigScreen() {
@@ -49,6 +53,63 @@ public class ConfigScreen extends Screen {
         int ph = Math.min(272, this.height - 40);
         return new int[]{(this.width - pw) / 2, (this.height - ph) / 2,
                 pw, ph};
+    }
+
+    /** Flat dark button in the panel's own style - solid fill, accent
+     * bar on the left like the sidebar boxes, no vanilla texture. */
+    private static final class PanelButton extends ClickableWidget {
+        interface Press {
+            void onPress(PanelButton b);
+        }
+
+        int accent = OFF;
+        private final Press onPress;
+
+        PanelButton(int x, int y, int w, int h, String msg, Press act) {
+            super(x, y, w, h, Text.literal(msg));
+            onPress = act;
+        }
+
+        @Override
+        protected void renderWidget(DrawContext ctx, int mx, int my,
+                                    float delta) {
+            int bg = this.active
+                    ? (this.isHovered() ? 0xFF2E2E40 : 0xFF1F1F2C)
+                    : 0xFF141420;
+            ctx.fill(getX(), getY(), getX() + getWidth(),
+                    getY() + getHeight(), bg);
+            ctx.fill(getX(), getY(), getX() + 3, getY() + getHeight(),
+                    this.active ? accent : 0xFF2E2E38);
+            ctx.fill(getX(), getY(), getX() + getWidth(), getY() + 1,
+                    0xFF2E2E40);
+            var tr = MinecraftClient.getInstance().textRenderer;
+            int c = this.active
+                    ? (this.isHovered() ? 0xFFFFFFFF : 0xFFD8D8E0)
+                    : 0xFF666672;
+            ctx.drawText(tr, getMessage(), getX() + 9,
+                    getY() + (getHeight() - 8) / 2, c, false);
+        }
+
+        @Override
+        public void onClick(Click click, boolean doubled) {
+            playDownSound(MinecraftClient.getInstance()
+                    .getSoundManager());
+            onPress.onPress(this);
+        }
+
+        @Override
+        protected void appendClickableNarrations(
+                NarrationMessageBuilder builder) {
+            builder.put(NarrationPart.TITLE, getMessage());
+        }
+    }
+
+    private PanelButton pbtn(int x, int y, int w, int h, String msg,
+                             int accent, PanelButton.Press act) {
+        PanelButton b = new PanelButton(x, y, w, h, msg, act);
+        b.accent = accent;
+        addDrawableChild(b);
+        return b;
     }
 
     @Override
@@ -65,23 +126,18 @@ public class ConfigScreen extends Screen {
         int i = 0;
         for (String id : MODULES) {
             final String mid = id;
-            ButtonWidget b = ButtonWidget.builder(
-                            Text.literal(label(mid)), bt -> toggle(mid, bt))
-                    .dimensions(cx + (i % 2) * 118, cy + (i / 2) * 21,
-                            112, 18).build();
+            PanelButton b = pbtn(cx + (i % 2) * 118, cy + (i / 2) * 21,
+                    112, 18, label(mid),
+                    ClientMod.settings.on(mid) ? ACCENT[1] : OFF,
+                    bt -> toggle(mid, bt));
             modBtns.add(b);
-            addDrawableChild(b);
             i++;
         }
-        routeBtn = ButtonWidget.builder(
-                        Text.literal(routeLabel()), this::runRoute)
-                .dimensions(cx, cy + 108, 150, 18).build();
-        addDrawableChild(routeBtn);
+        routeBtn = pbtn(cx, cy + 108, 150, 18, routeLabel(), ACCENT[1],
+                this::runRoute);
         // Admin tab: route recorder controls (hidden for non-admins)
-        recBtn = ButtonWidget.builder(
-                        Text.literal(recordLabel()), this::toggleRecord)
-                .dimensions(cx, cy + 28, 140, 20).build();
-        addDrawableChild(recBtn);
+        recBtn = pbtn(cx, cy + 28, 140, 20, recordLabel(), ACCENT[2],
+                this::toggleRecord);
         dwellField = new TextFieldWidget(this.textRenderer, cx + 70,
                 cy + 56, 50, 18, Text.literal("dwell"));
         dwellField.setMaxLength(3);
@@ -98,28 +154,22 @@ public class ConfigScreen extends Screen {
             }
         });
         addDrawableChild(dwellField);
-        clearBtn = ButtonWidget.builder(Text.literal("clear spots"),
-                        b -> {
-                            if (ClientMod.state != null
-                                    && ClientMod.state.recordClear
-                                            != null) {
-                                ClientMod.state.recordClear.run();
-                            }
-                        })
-                .dimensions(cx, cy + 108, 80, 18).build();
-        addDrawableChild(clearBtn);
-        doneBtn = ButtonWidget.builder(Text.literal("Done"),
-                        b -> close())
-                .dimensions(p[0] + p[2] - 70, p[1] + p[3] - 30,
-                        56, 20).build();
-        addDrawableChild(doneBtn);
+        clearBtn = pbtn(cx, cy + 108, 80, 18, "clear spots", ACCENT[2],
+                b -> {
+                    if (ClientMod.state != null
+                            && ClientMod.state.recordClear != null) {
+                        ClientMod.state.recordClear.run();
+                    }
+                });
+        doneBtn = pbtn(p[0] + p[2] - 70, p[1] + p[3] - 30, 56, 20,
+                "Done", OFF, b -> close());
         select(page);
     }
 
     private void select(int i) {
         page = Math.min(i, pages.size() - 1);
         boolean mods = page == 1, adm = page == 2;
-        for (ButtonWidget b : modBtns) {
+        for (PanelButton b : modBtns) {
             b.visible = mods;
         }
         if (routeBtn != null) {
@@ -136,12 +186,15 @@ public class ConfigScreen extends Screen {
         return id + ": " + (ClientMod.settings.on(id) ? "ON" : "off");
     }
 
-    private void toggle(String id, ButtonWidget b) {
+    private void toggle(String id, PanelButton b) {
         ClientMod.settings.toggle(id);
         if ("borderless".equals(id) && !ClientMod.settings.on(id)) {
             ClientMod.settings.borderlessApplied = false;
         }
         b.setMessage(Text.literal(label(id)));
+        if (b instanceof PanelButton pb) {
+            pb.accent = ClientMod.settings.on(id) ? ACCENT[1] : OFF;
+        }
         ClientMod.saveQuiet();
     }
 
@@ -153,7 +206,7 @@ public class ConfigScreen extends Screen {
                 + (ClientMod.state.routeActive ? "RUNNING" : "start");
     }
 
-    private void runRoute(ButtonWidget b) {
+    private void runRoute(PanelButton b) {
         if (ClientMod.state != null && ClientMod.state.routeAction != null) {
             ClientMod.state.routeAction.run();
             b.setMessage(Text.literal(routeLabel()));
@@ -168,7 +221,7 @@ public class ConfigScreen extends Screen {
         return "record: " + (ClientMod.state.recordOn ? "ON" : "off");
     }
 
-    private void toggleRecord(ButtonWidget b) {
+    private void toggleRecord(PanelButton b) {
         if (ClientMod.state != null
                 && ClientMod.state.recordToggle != null) {
             ClientMod.state.recordToggle.run();
