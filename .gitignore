@@ -20,3 +20,6 @@ server/version.txt
 # bash '2>nul' creates this stray file on Windows
 nul
 client-pro/.jdk21/
+piglurer/.gradle/
+piglurer/build/
+piglurer/run/

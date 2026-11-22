@@ -1,0 +1,44 @@
+plugins {
+    // non-remap variant: 26.x ships unobfuscated, no mappings step at all
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+    id 'java'
+}
+
+version = project.mod_version
+group = 'com.piglurer'
+
+base { archivesName = 'piglurer' }
+
+// MC 26.x class files are Java 25 - compile at that level
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+loom {
+    runs {
+        client {
+            client()
+            runDir 'run'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // no mappings: unobfuscated runtime - loader/api are plain deps
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "piglurer",
+  "version": "${version}",
+  "name": "Pig Lurer",
+  "description": "Shiny Pig orb-luring automation: finds unclaimed Shiny Pigs, drives them to the goal, and clicks the huge orb. Client-side, real inputs.",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.piglurer.PigLurerClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~26.2",
+    "java": ">=25"
+  },
+  "license": "MIT"
+}
