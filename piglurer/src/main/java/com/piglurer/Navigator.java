@@ -21,6 +21,7 @@ public class Navigator {
     private double lastSteerDist = Double.MAX_VALUE;
     private int progressTicks = 0;
     private int blockedTicks = 0;
+    private int nextHopIn = 30 + (int) (Math.random() * 40);
     private double detourAngleDeg = 0;
     private int detourTicks = 0;
 
@@ -170,7 +171,13 @@ public class Navigator {
         boolean needJump = blockedTicks > 5
                 || steer.y > p.getY() + 0.5
                 || p.isInWater();
-        client.options.keyJump.setDown(needJump);
+        // humans sprint-jump constantly on skyblock - a hop every ~1-3s
+        // reads as a player AND pops over lips that never register as a
+        // real collision (stair edges, parapets, odd half blocks)
+        if (nextHopIn > 0) nextHopIn--;
+        boolean hop = nextHopIn <= 0 && p.onGround();
+        if (hop) nextHopIn = 20 + (int) (Math.random() * 40);
+        client.options.keyJump.setDown(needJump || hop);
 
         // stuck = distance to the steer point isn't closing. Sliding
         // sideways along a wall still "moves", which is why this never
