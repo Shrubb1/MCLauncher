@@ -105,9 +105,55 @@ public final class PigLureCommands {
                 sm.toggleRecording(Minecraft.getInstance());
                 return 1;
             }).then(ClientCommands.literal("clear").executes(c -> {
-                sm.cancelRecording(Minecraft.getInstance(), true);
+                sm.cancelRecording(Minecraft.getInstance(), true, PigLurerClient.config.shop.steps);
                 return 1;
             })))
+            .then(ClientCommands.literal("recordhub").executes(c -> {
+                // same recorder, saves into the post-/hub script instead
+                sm.toggleHubRecording(Minecraft.getInstance());
+                return 1;
+            }).then(ClientCommands.literal("clear").executes(c -> {
+                sm.cancelRecording(Minecraft.getInstance(), true, PigLurerClient.config.hub.steps);
+                return 1;
+            })))
+            .then(ClientCommands.literal("sethub").executes(c -> {
+                // saves your feet as the walk-to spot after each /hub swap
+                LocalPlayer p = Minecraft.getInstance().player;
+                if (p == null) return 0;
+                PigLurerClient.config.hub.pos = new double[] { p.getX(), p.getY(), p.getZ() };
+                PigLurerClient.config.save();
+                c.getSource().sendFeedback(Component.literal("hub pos saved " + fmt(PigLurerClient.config.hub.pos)));
+                return 1;
+            }))
+            .then(ClientCommands.literal("hubplayers")
+                .then(ClientCommands.argument("n", IntegerArgumentType.integer(1, 80)).executes(c -> {
+                    PigLurerClient.config.hub.maxPlayers = IntegerArgumentType.getInteger(c, "n");
+                    PigLurerClient.config.save();
+                    c.getSource().sendFeedback(Component.literal("stay in lobby when Players (N) <= " + PigLurerClient.config.hub.maxPlayers));
+                    return 1;
+                })))
+            .then(ClientCommands.literal("playercount").executes(c -> {
+                // test the tab-list parse - should match the "Players (N)" row
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player == null || mc.player.connection == null) {
+                    c.getSource().sendFeedback(Component.literal("no connection"));
+                    return 0;
+                }
+                int found = -1;
+                java.util.regex.Pattern re = java.util.regex.Pattern.compile(
+                        "players\\s*\\((\\d+)\\)", java.util.regex.Pattern.CASE_INSENSITIVE);
+                for (net.minecraft.client.multiplayer.PlayerInfo info
+                        : mc.player.connection.getListedOnlinePlayers()) {
+                    var dn = info.getTabListDisplayName();
+                    if (dn == null) continue;
+                    var m = re.matcher(dn.getString());
+                    if (m.find()) found = Math.max(found, Integer.parseInt(m.group(1)));
+                }
+                c.getSource().sendFeedback(Component.literal(found < 0
+                        ? "no 'Players (N)' row found in tab list"
+                        : "Players (" + found + ")"));
+                return 1;
+            }))
             .then(ClientCommands.literal("recordpath").executes(c -> {
                 // toggles: records your position as you run the patrol route
                 sm.togglePathRecording(Minecraft.getInstance());
@@ -183,7 +229,7 @@ public final class PigLureCommands {
                 })))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|recordpath|pathpoint|patrol|pigdebug|listgui|navslot|buyslot|buycount|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|sethub|setgoal|goalmode|herdstyle|recordbuy|recordhub|recordpath|pathpoint|patrol|hubplayers|playercount|pigdebug|listgui|navslot|buyslot|buycount|orbname"));
                 return 1;
             })
         );

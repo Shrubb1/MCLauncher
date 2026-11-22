@@ -70,6 +70,17 @@ public class PigLureConfig {
     public int hubWaitTicks = 160;          // ~8s for the lobby swap
     public int hubScanTicks = 200;          // ~10s stationary scan after re-lobby
 
+    // post-/hub routine: walk to hub.pos, replay the recorded click script,
+    // then only stay if the tab list shows Players (N) <= maxPlayers
+    public HubCfg hub = new HubCfg();
+
+    public static class HubCfg {
+        public double[] pos = null;         // walk-to spot after /hub (sethub)
+        public java.util.List<BuyStep> steps = new java.util.ArrayList<>(); // recordhub script
+        public int maxPlayers = 1;          // stay only when Players (N) <= this
+        public int maxRelobbies = 6;        // cap so it can't /hub forever
+    }
+
     public static class PathCfg {
         public boolean enabled = true;
         public java.util.List<double[]> waypoints = new java.util.ArrayList<>(); // [x,y,z]

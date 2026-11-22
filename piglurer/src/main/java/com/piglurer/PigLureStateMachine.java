@@ -82,50 +82,61 @@ public class PigLureStateMachine {
     // clicks + GUI slot clicks) with the pauses between them; restock
     // replays the captured script instead of blind slot numbers
 
-    private boolean recording;
+    // 0 = not recording, 1 = buy script, 2 = hub script - both capture the
+    // same inputs, they just save to different step lists
+    private int recordTarget;
     private boolean sawContainer;
     private int recordLastTick;
     private final java.util.List<PigLureConfig.BuyStep> pendingSteps = new java.util.ArrayList<>();
 
     public boolean isRecording() {
-        return recording;
+        return recordTarget != 0;
     }
 
     public void toggleRecording(Minecraft c) {
-        if (recording) finishRecording(c); else startRecording(c);
+        if (recordTarget != 0) finishRecording(c); else startRecording(c, 1);
     }
 
-    private void startRecording(Minecraft c) {
+    public void toggleHubRecording(Minecraft c) {
+        if (recordTarget != 0) finishRecording(c); else startRecording(c, 2);
+    }
+
+    private void startRecording(Minecraft c, int target) {
         disable(c); // don't have the bot acting while you're demonstrating
         recordingPath = false; // one recorder at a time
         pendingPath.clear();
         pendingSteps.clear();
         sawContainer = false;
         recordLastTick = tick;
-        recording = true;
-        say(c, "§arecording buy - perform the purchase; it saves when the GUI closes");
+        recordTarget = target;
+        say(c, "§arecording " + (target == 1 ? "buy" : "hub")
+                + " - perform the actions; it saves when the GUI closes");
     }
 
     private void finishRecording(Minecraft c) {
-        recording = false;
+        java.util.List<PigLureConfig.BuyStep> store =
+                recordTarget == 2 ? cfg.hub.steps : cfg.shop.steps;
+        String which = recordTarget == 2 ? "hub" : "buy";
+        recordTarget = 0;
         if (pendingSteps.isEmpty()) {
-            say(c, "recordbuy ended - nothing recorded");
+            say(c, "recording ended - nothing captured");
             return;
         }
-        cfg.shop.steps.clear();
-        cfg.shop.steps.addAll(pendingSteps);
+        store.clear();
+        store.addAll(pendingSteps);
         pendingSteps.clear();
         cfg.save();
-        say(c, "§abuy script saved - " + cfg.shop.steps.size() + " steps");
+        say(c, "§a" + which + " script saved - " + store.size() + " steps");
     }
 
-    public void cancelRecording(Minecraft c, boolean wipeSaved) {
-        recording = false;
+    public void cancelRecording(Minecraft c, boolean wipeSaved,
+            java.util.List<PigLureConfig.BuyStep> which) {
+        recordTarget = 0;
         pendingSteps.clear();
-        if (wipeSaved && !cfg.shop.steps.isEmpty()) {
-            cfg.shop.steps.clear();
+        if (wipeSaved && !which.isEmpty()) {
+            which.clear();
             cfg.save();
-            say(c, "buy script cleared - falls back to nav/buySlot config");
+            say(c, "script cleared - that flow falls back to defaults");
         } else {
             say(c, "recording cancelled");
         }
@@ -140,7 +151,7 @@ public class PigLureStateMachine {
     }
 
     public void recordBlockClick(net.minecraft.core.BlockPos pos, net.minecraft.core.Direction face) {
-        if (!recording) return;
+        if (recordTarget == 0) return;
         PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
         s.type = "block";
         s.delta = nextDelta();
@@ -152,7 +163,7 @@ public class PigLureStateMachine {
     }
 
     public void recordEntityClick(net.minecraft.world.entity.Entity e) {
-        if (!recording) return;
+        if (recordTarget == 0) return;
         PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
         s.type = "entity";
         s.delta = nextDelta();
@@ -167,7 +178,7 @@ public class PigLureStateMachine {
     }
 
     public void recordGuiClick(int slot, int button, boolean shift) {
-        if (!recording || slot < 0) return;
+        if (recordTarget == 0 || slot < 0) return;
         PigLureConfig.BuyStep s = new PigLureConfig.BuyStep();
         s.type = "gui";
         s.delta = nextDelta();
@@ -197,7 +208,13 @@ public class PigLureStateMachine {
     private int waypointStuckAt;       // tick we set off for the current wp
     private int lapStartTick;
     private int fastLaps;              // sub-5s laps (degenerate tight loop)
-    private int patrolWaitUntil;       // post-/hub stationary scan window
+
+    // post-/hub routine, run inside tickPatrol while it owns the loop:
+    // 1 wait for transfer | 2 walk to hub.pos | 3 replay hub.steps |
+    // 4 player-count gate | 5 stand and scan before resuming patrol
+    private int hubPhase;
+    private int hubPhaseUntil;
+    private int relobbyCount;
 
     private boolean recordingPath;
     private Vec3 lastPathPoint;
@@ -213,7 +230,7 @@ public class PigLureStateMachine {
 
     private void startPathRecording(Minecraft c) {
         disable(c);
-        recording = false; // one recorder at a time
+        recordTarget = 0; // one recorder at a time
         pendingSteps.clear();
         pendingPath.clear();
         lastPathPoint = null;
@@ -271,9 +288,12 @@ public class PigLureStateMachine {
 
     private void tickPatrol(Minecraft client) {
         LocalPlayer p = client.player;
+        if (hubPhase != 0) {
+            tickHubFlow(client);
+            return;
+        }
         java.util.List<double[]> wps = cfg.path.waypoints;
         if (!cfg.path.enabled || wps.isEmpty()) return;
-        if (tick < patrolWaitUntil) return; // standing still scanning post-/hub
 
         if (patrolIndex < 0 || patrolIndex >= wps.size()) {
             patrolIndex = nearestWaypoint(p, wps);
@@ -318,10 +338,97 @@ public class PigLureStateMachine {
             say(client, "patrol lap done, no pig - looping");
             return;
         }
+        beginRelobby(client);
+    }
+
+    private void beginRelobby(Minecraft client) {
+        relobbyCount++;
         say(client, "patrol lap done, no pig - /hub for a fresh lobby");
         client.player.connection.sendCommand("hub");
-        // lobby swap eats most of hubWaitTicks; then stand still and scan
-        patrolWaitUntil = tick + cfg.hubWaitTicks + cfg.hubScanTicks;
+        hubPhase = 1;
+        hubPhaseUntil = tick + cfg.hubWaitTicks;
+    }
+
+    private void tickHubFlow(Minecraft client) {
+        LocalPlayer p = client.player;
+        switch (hubPhase) {
+            case 1 -> { // lobby swap in progress
+                if (tick < hubPhaseUntil) return;
+                if (cfg.hub.pos != null) {
+                    hubPhase = 2;
+                    hubPhaseUntil = tick + 300; // walk timeout
+                } else {
+                    startHubSteps(client);
+                }
+            }
+            case 2 -> { // walk to the saved hub spot
+                Vec3 hp = new Vec3(cfg.hub.pos[0], cfg.hub.pos[1], cfg.hub.pos[2]);
+                if (p.position().distanceTo(hp) < 2.5 || tick >= hubPhaseUntil) {
+                    nav.cancel();
+                    startHubSteps(client);
+                } else {
+                    nav.setTarget(hp.add(0, 0.001, 0), 1.5);
+                }
+            }
+            case 3 -> { // hub script still replaying
+                if (tick >= hubPhaseUntil) hubPhase = 4;
+            }
+            case 4 -> { // only stay if the lobby is empty enough
+                int n = hubPlayerCount(client);
+                if (n >= 0 && n > cfg.hub.maxPlayers && relobbyCount < cfg.hub.maxRelobbies) {
+                    say(client, "Players (" + n + ") > " + cfg.hub.maxPlayers + " - relobbying");
+                    beginRelobby(client);
+                    return;
+                }
+                if (n < 0) {
+                    say(client, "couldn't read player count - staying");
+                } else {
+                    say(client, "Players (" + n + ")"
+                            + (n > cfg.hub.maxPlayers ? " - hit relobby cap, staying anyway" : " - lobby ok"));
+                }
+                hubPhase = 5;
+                hubPhaseUntil = tick + cfg.hubScanTicks;
+            }
+            case 5 -> { // stationary scan of the fresh lobby
+                if (tick >= hubPhaseUntil) {
+                    hubPhase = 0;
+                    relobbyCount = 0;
+                }
+            }
+        }
+    }
+
+    private void startHubSteps(Minecraft client) {
+        if (cfg.hub.steps.isEmpty()) {
+            hubPhase = 4;
+            return;
+        }
+        int at = 0;
+        for (PigLureConfig.BuyStep s : cfg.hub.steps) {
+            at += Math.min(Math.max(s.delta, 4), 80);
+            final PigLureConfig.BuyStep step = s;
+            schedule(at, () -> replayStep(client, step, 0));
+        }
+        say(client, "replaying hub script (" + cfg.hub.steps.size() + " steps)");
+        hubPhase = 3;
+        hubPhaseUntil = tick + at + 20;
+    }
+
+    // "Players (N)" appears as a row in the SkyBlock tab list - read every
+    // listed entry's display name and pull the number out; -1 = unreadable
+    private int hubPlayerCount(Minecraft client) {
+        if (client.player == null || client.player.connection == null) return -1;
+        java.util.regex.Pattern re = java.util.regex.Pattern.compile(
+                "players\\s*\\((\\d+)\\)", java.util.regex.Pattern.CASE_INSENSITIVE);
+        int best = -1;
+        for (net.minecraft.client.multiplayer.PlayerInfo info
+                : client.player.connection.getListedOnlinePlayers()) {
+            var dn = info.getTabListDisplayName();
+            if (dn == null) continue;
+            var m = re.matcher(dn.getString());
+            if (m.find()) best = Math.max(best, Integer.parseInt(m.group(1)));
+        }
+        return best;
     }
 
     private int nearestWaypoint(LocalPlayer p, java.util.List<double[]> wps) {
@@ -370,7 +477,8 @@ public class PigLureStateMachine {
     public void enable(Minecraft c) {
         clearCtx();
         patrolIndex = -1;
-        patrolWaitUntil = 0;
+        hubPhase = 0;
+        relobbyCount = 0;
         fastLaps = 0;
         transition(c, S.CHECK_ORBS, "enabled");
     }
@@ -392,7 +500,7 @@ public class PigLureStateMachine {
     public void tick(Minecraft client) {
         tick++;
         if (nav == null) nav = new Navigator(client, cfg);
-        if (recording) recordingTick(client);
+        if (recordTarget != 0) recordingTick(client);
         if (recordingPath) pathRecordingTick(client);
         if (state == S.DISABLED) return;
 
@@ -435,8 +543,11 @@ public class PigLureStateMachine {
             Pig found = Sense.findShinyPig(client.level, p.position(), cfg, ourName);
             if (found != null) {
                 // pause the patrol for the pig job; resume from the nearest
-                // waypoint afterwards (herding may have dragged us elsewhere)
+                // waypoint afterwards (herding may have dragged us elsewhere).
+                // a pig means this lobby is fine - drop any relobby flow
                 patrolIndex = -1;
+                hubPhase = 0;
+                relobbyCount = 0;
                 clearCtx();
                 pig = found;
                 transition(client, S.APPROACHING_PIG,
@@ -554,7 +665,8 @@ public class PigLureStateMachine {
     }
 
     private void replayStep(Minecraft client, PigLureConfig.BuyStep s, int retry) {
-        if (state != S.RESTOCKING) return;
+        // buy scripts replay in RESTOCKING, hub scripts in IDLE_SCAN
+        if (state != S.RESTOCKING && state != S.IDLE_SCAN) return;
         LocalPlayer p = client.player;
         if (p == null) return;
         switch (s.type) {
