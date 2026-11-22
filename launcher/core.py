@@ -1199,8 +1199,11 @@ def download_java(major: int, dest_root, progress=None) -> str | None:
            f"{major}/ga/windows/x64/jre/hotspot/normal/eclipse")
     dest_root = Path(dest_root)
     dest_root.mkdir(parents=True, exist_ok=True)
-    # already downloaded?
-    for jw in dest_root.rglob("javaw.exe"):
+    major_dir = dest_root / f"temurin-{major}"
+    # already downloaded? - must scope to THIS major: any javaw.exe
+    # elsewhere in the root (e.g. a temurin-21 from an older instance)
+    # would satisfy the launch check but fail the game's own version gate
+    for jw in major_dir.rglob("javaw.exe"):
         return str(jw)
     tmp = dest_root / f"_jre{major}.zip"
     try:
@@ -1216,9 +1219,9 @@ def download_java(major: int, dest_root, progress=None) -> str | None:
                     if progress and total:
                         progress(int(done * 100 / total))
         with zipfile.ZipFile(tmp) as z:
-            z.extractall(dest_root / f"temurin-{major}")
+            z.extractall(major_dir)
         tmp.unlink(missing_ok=True)
-        for jw in dest_root.rglob("javaw.exe"):
+        for jw in major_dir.rglob("javaw.exe"):
             return str(jw)
         return None
     except Exception:
