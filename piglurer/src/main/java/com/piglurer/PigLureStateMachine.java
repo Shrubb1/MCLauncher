@@ -993,6 +993,24 @@ public class PigLureStateMachine {
         double stagingDist = distToGoal <= cfg.goalDoneRadius + 0.5 ? 1.2 : cfg.herdStagingDistance;
         Vec3 staging = pig.position().add(rx * stagingDist, 0, rz * stagingDist);
 
+        // Get BEHIND the pig by walking an arc around its repel circle -
+        // a straight line to the far side cuts through the pig and shoves
+        // it away from the goal (and reads as bot steering). Only used while
+        // the path would actually cross the repel radius.
+        Vec3 navTarget = staging;
+        double repelR = Math.max(3.2, cfg.herdStagingDistance + 0.7);
+        if (crossesCircle(p.position(), staging, pig.position(), repelR)) {
+            double playerAng = Math.atan2(p.getZ() - pig.getZ(), p.getX() - pig.getX());
+            double stagingAng = Math.atan2(rz, rx);
+            double diff = stagingAng - playerAng;
+            while (diff > Math.PI) diff -= 2 * Math.PI;
+            while (diff < -Math.PI) diff += 2 * Math.PI;
+            double step = Math.copySign(Math.toRadians(40), diff);
+            double nextAng = Math.abs(diff) < Math.abs(step) ? stagingAng : playerAng + step;
+            navTarget = pig.position().add(
+                    Math.cos(nextAng) * repelR, 0, Math.sin(nextAng) * repelR);
+        }
+
         Navigator.lookAt(p, Sense.center(pig));
 
         if ("punch".equals(cfg.herdStyle)
@@ -1003,7 +1021,19 @@ public class PigLureStateMachine {
             say(client, "punched pig toward goal");
         }
 
-        nav.setTarget(staging, 0.4);
+        nav.setTarget(navTarget, 0.4);
+    }
+
+    // does the straight path a->b pass within r blocks of center (XZ)?
+    private static boolean crossesCircle(Vec3 a, Vec3 b, Vec3 center, double r) {
+        double abx = b.x - a.x, abz = b.z - a.z;
+        double len2 = abx * abx + abz * abz;
+        if (len2 < 1e-6) return false;
+        double t = ((center.x - a.x) * abx + (center.z - a.z) * abz) / len2;
+        t = Math.max(0, Math.min(1, t));
+        double cx = a.x + abx * t - center.x;
+        double cz = a.z + abz * t - center.z;
+        return cx * cx + cz * cz < r * r;
     }
 
     private void tickOrb(Minecraft client) {

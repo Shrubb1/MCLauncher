@@ -73,7 +73,9 @@ public class Navigator {
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 
-        boolean needJump = p.horizontalCollision
+        // only hop when genuinely blocked a moment or the target's above -
+        // touching a wall for a tick shouldn't mean a jump
+        boolean needJump = (p.horizontalCollision && stuckTicks > 5)
                 || target.y > p.getY() + 0.5
                 || p.isInWater();
         client.options.keyJump.setDown(needJump);
