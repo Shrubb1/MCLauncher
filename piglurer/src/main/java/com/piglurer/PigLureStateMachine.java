@@ -42,6 +42,7 @@ public class PigLureStateMachine {
     private Vec3 herdAimPigPos;
     private int herdAimNudges = -1;
     private int herdAimAt;
+    private int herdOrbitBudget;
     private int stallNudges;
     private int lastPunchTick;
     private int shopAttempts;
@@ -712,6 +713,15 @@ public class PigLureStateMachine {
     // the orb timed out before the token landed - /hub for a fresh lobby,
     // then patrol picks up from the nearest waypoint like a no-pig lap
     private void expireOrb(Minecraft client) {
+        // expiry lines may not be player-scoped - someone else's orb
+        // timing out in the lobby reads identical. If OUR orb entity is
+        // still physically at the anchor (charged orbs stay clickable),
+        // the message wasn't about us - keep working
+        if (orbAnchor != null && client.level != null
+                && Sense.findOrbEntity(client.level, orbAnchor, cfg) != null) {
+            say(client, "orb expiry line but our orb's still there - ignoring");
+            return;
+        }
         // clear context BEFORE speaking - the say line carries trigger
         // words and must never be able to re-enter this path
         clearCtx();
@@ -1156,6 +1166,7 @@ public class PigLureStateMachine {
         Navigator.lookAt(p, Sense.center(target));
 
         goalPos = target.position(); // pig's position at right-click time = herd target
+        orbAnchor = goalPos; // the orb spawns at the click spot - known from launch on
         // same as /piglure setgoal - persists it so mode=fixed and
         // later sessions use this spot too
         cfg.goal.pos = new double[] { target.getX(), target.getY(), target.getZ() };
@@ -1182,6 +1193,9 @@ public class PigLureStateMachine {
             stallRef = target.position();
             stallCheckedAt = tick;
             stallNudges = 0;
+            // 0-2 reposition hops around the pig per job, rolled at launch -
+            // going around is sometimes needed but orbiting forever isn't
+            herdOrbitBudget = (int) (Math.random() * 3);
             transition(client, S.HERDING_TO_GOAL, "pig launched — herding");
         });
     }
@@ -1281,10 +1295,9 @@ public class PigLureStateMachine {
         // whether A* can actually route there and how much it has to
         // detour - this is the "see where to go before moving" step that
         // stops it aiming at spots inside walls or wandering into rooms.
-        // Rescored ~once a second, on each stall nudge, or when the pig
-        // moved since the last pick.
+        // Rescored on events only (stall nudge, pig moved, spot reached) -
+        // the old 25-tick timer kept hopping the target = endless circling
         if (herdAim == null || stallNudges != herdAimNudges
-                || tick - herdAimAt > 25
                 || pig.position().distanceToSqr(herdAimPigPos) > 4.0
                 || p.position().distanceToSqr(herdAim) < 0.7) {
             herdAim = pickHerdAim(client, p, pig.position(),
@@ -1328,8 +1341,12 @@ public class PigLureStateMachine {
             java.util.List<Vec3> direct = Pathfinder.find(client.level, p.position(), ideal);
             if (direct != null && !direct.isEmpty()) return ideal;
         }
+        // orbit budget spent - commit to the ideal point; walking through
+        // the repel ring sometimes is better than circling forever
+        if (herdOrbitBudget <= 0) return ideal;
         Vec3 best = null;
         double bestScore = Double.MAX_VALUE;
+        double bestOff = 0;
         for (double off : HERD_OFFS) {
             double a = baseAng + Math.toRadians(off);
             Vec3 cand = pigPos.add(Math.cos(a) * repelR, 0, Math.sin(a) * repelR);
@@ -1337,8 +1354,10 @@ public class PigLureStateMachine {
             if (route == null || route.isEmpty()) continue;
             double score = Math.abs(off) * 0.03
                     + route.size() / Math.max(1.0, cand.distanceTo(p.position()));
-            if (score < bestScore) { bestScore = score; best = cand; }
+            if (score < bestScore) { bestScore = score; best = cand; bestOff = off; }
         }
+        // only a genuinely off-axis hop costs budget - the ideal line is free
+        if (best != null && Math.abs(bestOff) >= 25) herdOrbitBudget--;
         return best != null ? best : ideal;
     }
 
