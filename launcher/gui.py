@@ -1487,18 +1487,27 @@ class LauncherApp(ctk.CTk):
     # ------------------------------------------------ Share / import codes
 
     def _share_instance(self, inst):
-        code = core.make_share_code(inst, str(self._instance_mods_dir(inst)))
+        code, missing = core.make_share_code(
+            inst, str(self._instance_mods_dir(inst)))
 
         dlg = ctk.CTkToplevel(self)
         dlg.title(f"Share '{inst.get('name', 'Instance')}'")
-        dlg.geometry("560x240")
+        dlg.geometry("560x" + ("290" if missing else "240"))
         dlg.transient(self)
         dlg.grid_columnconfigure(0, weight=1)
 
+        info = ("Send this code to a friend - they paste it into "
+                "'Import code' on the Instances page and get the same "
+                "version + mods downloaded automatically.")
+        if missing:
+            shown = ", ".join(missing[:4])
+            if len(missing) > 4:
+                shown += f" +{len(missing) - 4} more"
+            info += (f"\n\nWon't transfer ({len(missing)} jar"
+                     f"{'s' if len(missing) != 1 else ''} not on "
+                     f"Modrinth): {shown}")
         ctk.CTkLabel(
-            dlg, text="Send this code to a friend - they paste it into "
-                      "'Import code' on the Instances page and get the same "
-                      "version + mods downloaded automatically.",
+            dlg, text=info,
             font=FONT_SMALL, text_color=("gray35", "gray60"), wraplength=520,
             justify="left").grid(row=0, column=0, sticky="w", padx=16, pady=(14, 6))
 

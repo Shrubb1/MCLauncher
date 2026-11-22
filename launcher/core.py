@@ -1,6 +1,7 @@
 """Core launcher logic: version listing, mod loader installs, launching."""
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -991,17 +992,63 @@ def diagnose_crash(log_text: str) -> dict:
 
 # --------------------------------------------------------- Share codes
 
-def make_share_code(inst: dict, mods_dir: str) -> str:
-    """Encode an instance + its Modrinth mod list as a compact code."""
+def _hash_mod_ids(mods_dir: str) -> tuple:
+    """sha512 every jar in mods_dir and ask Modrinth which projects
+    they are - catches jars dropped in manually (no .modrinth_map
+    entry). Returns (project_ids, unmatched_filenames); on API failure
+    returns (set(), []) so we don't wrongly accuse jars."""
+    try:
+        jars = [f for f in os.listdir(mods_dir)
+                if f.lower().endswith(".jar")
+                and os.path.isfile(os.path.join(mods_dir, f))]
+    except OSError:
+        return set(), []
+    if not jars:
+        return set(), []
+    hashes = {}
+    for j in jars:
+        h = hashlib.sha512()
+        try:
+            with open(os.path.join(mods_dir, j), "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            hashes[h.hexdigest()] = j
+        except OSError:
+            pass
+    try:
+        resp = requests.post(
+            f"{MODRINTH_API}/version_files",
+            json={"hashes": list(hashes), "algorithm": "sha512"},
+            headers=_MODRINTH_HEADERS, timeout=25)
+        resp.raise_for_status()
+        found = resp.json()
+    except Exception:
+        return set(), []
+    ids = {v["project_id"] for v in found.values()
+           if isinstance(v, dict) and v.get("project_id")}
+    missing = [hashes[h] for h in hashes if h not in found]
+    return ids, missing
+
+
+def make_share_code(inst: dict, mods_dir: str) -> tuple:
+    """Encode an instance + its mod list as a compact code.
+
+    Returns (code, unmatched_jars) - jars Modrinth can't identify
+    (CurseForge-only, custom builds) can't be fetched on import and
+    the caller should say so."""
+    mods = set(_read_mod_map(mods_dir).keys())
+    hashed, missing = _hash_mod_ids(mods_dir)
+    mods |= hashed
     payload = {
         "name": inst.get("name", "Shared instance"),
         "mc": inst.get("mc_version", ""),
         "loader": inst.get("loader_id", "vanilla"),
         "lv": inst.get("loader_version", ""),
-        "mods": sorted(_read_mod_map(mods_dir).keys()),
+        "mods": sorted(mods),
     }
     raw = json.dumps(payload, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    code = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return code, missing
 
 
 def parse_share_code(code: str) -> dict:
