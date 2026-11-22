@@ -273,6 +273,10 @@ public class PigLureStateMachine {
         Navigator.lookAt(p, Sense.center(pig));
 
         goalPos = pig.position(); // pig's position at right-click time = herd target
+        // same as /piglure setgoal - persists it so mode=fixed and
+        // later sessions use this spot too
+        cfg.goal.pos = new double[] { pig.getX(), pig.getY(), pig.getZ() };
+        PigLurerClient.config.save();
         client.gameMode.interact(p, pig, new EntityHitResult(pig), InteractionHand.MAIN_HAND);
         if (cfg.useInteractAt) {
             client.gameMode.interact(p, pig,
