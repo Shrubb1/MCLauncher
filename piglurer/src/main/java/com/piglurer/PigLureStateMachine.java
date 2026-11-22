@@ -974,26 +974,41 @@ public class PigLureStateMachine {
                 Vec3 hit = Vec3.atCenterOf(bp);
                 Direction f = face;
                 Navigator.lookAt(p, hit);
-                schedule(cfg.lookSettleTicks, () -> {
+                waitAimThen(client, hit, () -> {
                     client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND,
                             new BlockHitResult(hit, f, bp, false));
                     say(client, "replay block click @" + bp.toShortString());
-                });
+                }, 0);
             }
             case "entity" -> {
                 Entity e = findRecordedEntity(client, s);
                 if (e != null) {
-                    Navigator.lookAt(p, Sense.center(e));
+                    Vec3 aim = Sense.center(e);
+                    Navigator.lookAt(p, aim);
                     final Entity target = e;
-                    schedule(cfg.lookSettleTicks, () -> {
+                    waitAimThen(client, aim, () -> {
                         client.gameMode.interact(p, target,
                                 new EntityHitResult(target), InteractionHand.MAIN_HAND);
                         say(client, "replay entity " + target.getName().getString());
-                    });
+                    }, 0);
                 } else {
                     say(client, "§creplay: no " + s.entityType + " near recorded spot");
                 }
             }
+        }
+    }
+
+    // fires only once the head turn has actually landed on the aim point
+    // (~1s max so an unreachable aim can't hang the script) - replaces
+    // flat lookSettleTicks so big turns can't click while still swinging
+    private void waitAimThen(Minecraft client, Vec3 aim, Runnable fire, int tries) {
+        LocalPlayer p = client.player;
+        if (p == null) return;
+        if (Navigator.aimedAt(p, aim) || tries > 20) {
+            fire.run();
+        } else {
+            Navigator.lookAt(p, aim);
+            schedule(2, () -> waitAimThen(client, aim, fire, tries + 1));
         }
     }
 
