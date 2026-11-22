@@ -1036,8 +1036,15 @@ public class PigLureStateMachine {
 
         double dist = p.position().distanceTo(Sense.center(orb));
         if (dist > cfg.orbInteractRange) {
-            nav.setTarget(Sense.center(orb), cfg.orbInteractRange - 0.5);
-            return;
+            // the orb often sits in a hedge/pit you can't quite step into -
+            // after ~4s of trying, accept a slightly longer throw instead
+            // of jumping at the wall forever
+            if (tick - enteredAt > 80 && dist <= cfg.orbInteractRange + 1.5) {
+                nav.cancel();
+            } else {
+                nav.setTarget(Sense.center(orb), cfg.orbInteractRange - 0.5);
+                return;
+            }
         }
         nav.cancel();
         Navigator.lookAt(p, Sense.center(orb));

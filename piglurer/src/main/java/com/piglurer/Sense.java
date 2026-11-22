@@ -171,24 +171,30 @@ public final class Sense {
                 || e instanceof ItemFrame;
     }
 
-    // Locate the interactable orb near `pos`. Prefers an entity whose text matches
-    // orbMatch ("click"), then an Interaction hitbox near that anchor, then
+    // Locate the interactable orb near `pos`. The orb's own label says
+    // "SHINY ORB" - prefer text containing "orb" over the generic orbMatch
+    // ("click") which NPC nameplates like the Auction Agent also carry.
+    // Nearest match wins, then an Interaction hitbox near the anchor, then
     // the nearest candidate-type entity.
     public static Entity findOrbEntity(ClientLevel world, Vec3 pos, PigLureConfig cfg) {
         Pattern orbRe = Pattern.compile(cfg.orbMatch, Pattern.CASE_INSENSITIVE);
-        Entity anchor = null;
-        Entity typedBest = null;
-        double typedDist = Double.MAX_VALUE;
+        Entity orbText = null;   double orbTextDist = Double.MAX_VALUE;
+        Entity matchText = null; double matchDist = Double.MAX_VALUE;
+        Entity typedBest = null; double typedDist = Double.MAX_VALUE;
         for (Entity e : world.entitiesForRendering()) {
             if (e instanceof Player || e instanceof Pig) continue;
-            if (e.position().distanceTo(pos) > cfg.orbSearchRadius) continue;
-            if (anchor == null && orbRe.matcher(entityText(e)).find()) anchor = e;
-            if (isOrbCandidateType(e)) {
-                double d = e.position().distanceTo(pos);
-                if (d < typedDist) { typedDist = d; typedBest = e; }
+            double d = e.position().distanceTo(pos);
+            if (d > cfg.orbSearchRadius) continue;
+            String text = entityText(e).toLowerCase();
+            if (text.contains("orb")) {
+                if (d < orbTextDist) { orbTextDist = d; orbText = e; }
+            } else if (orbRe.matcher(text).find()) {
+                if (d < matchDist) { matchDist = d; matchText = e; }
             }
+            if (isOrbCandidateType(e) && d < typedDist) { typedDist = d; typedBest = e; }
         }
-        if (anchor == null) anchor = typedBest;
+        Entity anchor = orbText != null ? orbText
+                : matchText != null ? matchText : typedBest;
         if (anchor == null) return null;
 
         // an `interaction` entity near the anchor is the proper click hitbox
