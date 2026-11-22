@@ -154,6 +154,9 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
     """Build the game command and launch Minecraft. Returns the Popen."""
     game_dir = settings["game_dir"]
     run_dir = game_dir_override or game_dir
+    # fresh PCs may not have the game dir yet - Popen dies on a missing
+    # cwd with the cryptic WinError "cannot find the path"
+    os.makedirs(game_dir, exist_ok=True)
     os.makedirs(run_dir, exist_ok=True)
 
     jvm_args = _jvm_arguments(settings, ram_mb)
@@ -164,11 +167,24 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
         if jars:
             jvm_args.append("-Dfabric.addMods=" + os.pathsep.join(jars))
 
+    # a stale java_path or a bare 'javaw' with no Java on PATH fails the
+    # launch as WinError 2 - fall back, then fail loudly if still bad
+    java = settings.get("java_path") or ""
+    if java and not os.path.isfile(java):
+        java = ""
+    if not java:
+        java = find_java()
+    if not os.path.isfile(java) \
+            and not (shutil.which("javaw") or shutil.which("java")):
+        raise RuntimeError(
+            "No Java runtime found - set the Java path in Settings "
+            "or let the launcher download it on Play")
+
     options = {
         "username": profile.get("name", "Player"),
         "uuid": profile.get("id", ""),
         "token": profile.get("access_token", ""),
-        "defaultExecutablePath": settings.get("java_path") or find_java(),
+        "defaultExecutablePath": java,
         "jvmArguments": jvm_args,
         "launcherName": APP_NAME,
         "launcherVersion": APP_VERSION,
@@ -176,7 +192,8 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
         "enableLoggingConfig": True,
     }
 
-    if settings.get("java_path"):
+    if settings.get("java_path") and os.path.isfile(
+            settings["java_path"]):
         options["executablePath"] = settings["java_path"]
 
     if settings.get("custom_resolution"):
@@ -194,12 +211,18 @@ def launch_minecraft(version_id: str, profile: dict, settings: dict,
     flags = {}
     if os.name == "nt":
         flags["creationflags"] = subprocess.CREATE_NO_WINDOW
-    if log_path:
-        # Keep the handle open - the child process owns it for its lifetime.
-        output = open(log_path, "wb", buffering=0)
-        return subprocess.Popen(command, cwd=game_dir,
-                                stdout=output, stderr=subprocess.STDOUT, **flags)
-    return subprocess.Popen(command, cwd=game_dir, **flags)
+    try:
+        if log_path:
+            # Keep the handle open - the child owns it for its lifetime.
+            output = open(log_path, "wb", buffering=0)
+            return subprocess.Popen(command, cwd=game_dir,
+                                    stdout=output,
+                                    stderr=subprocess.STDOUT, **flags)
+        return subprocess.Popen(command, cwd=game_dir, **flags)
+    except OSError as e:
+        raise RuntimeError(
+            f"Couldn't start the game ({e}) - check the Java path "
+            f"and game directory in Settings") from e
 
 
 def _ver_key(v: str) -> tuple:
