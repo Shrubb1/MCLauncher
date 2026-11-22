@@ -26,6 +26,8 @@ public class PigLurerClient implements ClientModInitializer {
     public static PigLureStateMachine machine;
     // quips the bot picks from when someone says its name - user-editable
     public static List<String> panicResponses = new ArrayList<>();
+    // "go away"-style lines when a player stands in the bot's face
+    public static List<String> shooResponses = new ArrayList<>();
     private static Pattern panicKeywordRe;
 
     @Override
@@ -131,28 +133,37 @@ public class PigLurerClient implements ClientModInitializer {
         return Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
     }
 
-    // responses live in config/piglurer_responses.txt (one per line) so
-    // they're easy to extend; the jar ships defaults copied on first run
+    // responses live as config/*.txt files (one per line) so they're easy
+    // to extend; the jar ships defaults copied on first run
     private static void loadPanicResponses() {
-        Path p = FabricLoader.getInstance().getConfigDir().resolve("piglurer_responses.txt");
+        loadResponseFile("piglurer_responses.txt", panicResponses);
+        loadResponseFile("piglurer_shoo.txt", shooResponses);
+        if (panicResponses.isEmpty()) {
+            panicResponses.addAll(List.of("yo", "yeah?", "sup", "what's up", "sorry was afk-ish"));
+        }
+        if (shooResponses.isEmpty()) {
+            shooResponses.addAll(List.of("go away", "move pls", "personal space", "??"));
+        }
+        System.out.println("[PigLurer] " + panicResponses.size() + " panic + "
+                + shooResponses.size() + " shoo responses loaded");
+    }
+
+    private static void loadResponseFile(String name, List<String> out) {
+        Path p = FabricLoader.getInstance().getConfigDir().resolve(name);
         try {
             if (!Files.exists(p)) {
-                try (var in = PigLurerClient.class.getResourceAsStream("/piglurer_responses.txt")) {
+                try (var in = PigLurerClient.class.getResourceAsStream("/" + name)) {
                     if (in != null) Files.copy(in, p);
                 }
             }
             if (Files.exists(p)) {
                 for (String line : Files.readAllLines(p)) {
                     String t = line.trim();
-                    if (!t.isEmpty() && !t.startsWith("#")) panicResponses.add(t);
+                    if (!t.isEmpty() && !t.startsWith("#")) out.add(t);
                 }
             }
         } catch (Exception e) {
-            System.err.println("[PigLurer] responses file error: " + e.getMessage());
+            System.err.println("[PigLurer] " + name + " error: " + e.getMessage());
         }
-        if (panicResponses.isEmpty()) {
-            panicResponses.addAll(List.of("yo", "yeah?", "sup", "what's up", "sorry was afk-ish"));
-        }
-        System.out.println("[PigLurer] " + panicResponses.size() + " panic responses loaded");
     }
 }

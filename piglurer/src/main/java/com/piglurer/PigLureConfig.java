@@ -87,6 +87,20 @@ public class PigLureConfig {
     // random response then leave; a bot keyword -> leave instantly
     public PanicCfg panic = new PanicCfg();
 
+    // a player standing right in the bot's face: tell them to move, and
+    // if they linger -> pause, stare at them, then probably bail
+    public ProximityCfg proximity = new ProximityCfg();
+
+    public static class ProximityCfg {
+        public boolean enabled = true;
+        public double radius = 1.8;          // blocks - "in our face" distance
+        public int warnAfterTicks = 80;      // ~4s sustained closeness -> shoo them
+        public int escalateAfterTicks = 200; // still there ~10s later -> stare/leave
+        public int stareTicks = 40;          // ~2s frozen eye contact before deciding
+        public double leaveChance = 0.75;    // chance the stare ends in a bail
+        public int cooldownTicks = 1200;     // 60s before proximity can re-trigger
+    }
+
     public static class PanicCfg {
         public boolean enabled = true;
         // word-stem matches against the spoken part of each chat line -
@@ -95,6 +109,7 @@ public class PigLureConfig {
                 "bot", "macro", "auto", "script", "cheat", "hack", "watchdog", "afk", "report"));
         public int responseDelayTicks = 6;
         public int cooldownTicks = 600;      // 30s before panic can re-trigger
+        public int chatCooldownTicks = 1200; // min gap between ANY bot chat line (60s)
     }
 
     public static class StashCfg {

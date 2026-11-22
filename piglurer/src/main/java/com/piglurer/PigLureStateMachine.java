@@ -235,15 +235,29 @@ public class PigLureStateMachine {
     private int panicCooldownUntil;
     private final java.util.ArrayDeque<Integer> recentResponses = new java.util.ArrayDeque<>();
 
-    // someone spoke our name - respond, then escape
+    // min gap between any chat line the bot sends - quips and shoo lines
+    // share it so it can never chatter back-to-back
+    private int lastTalkAt = -999999;
+    private boolean tryTalk() {
+        if (tick - lastTalkAt < cfg.panic.chatCooldownTicks) return false;
+        lastTalkAt = tick;
+        return true;
+    }
+
+    // someone spoke our name - respond (if the talk cooldown allows),
+    // then escape
     public void panicMention(Minecraft client) {
         if (!cfg.panic.enabled || tick < panicCooldownUntil || state == S.DISABLED) return;
         panicCooldownUntil = tick + cfg.panic.cooldownTicks;
-        String response = pickResponse();
-        say(client, "§cIGN mentioned - responding then leaving");
-        schedule(2, () -> {
-            if (client.player != null) client.player.connection.sendChat(response);
-        });
+        if (tryTalk()) {
+            String response = pickResponse();
+            say(client, "§cIGN mentioned - responding then leaving");
+            schedule(2, () -> {
+                if (client.player != null) client.player.connection.sendChat(response);
+            });
+        } else {
+            say(client, "§cIGN mentioned - talk on cooldown, just leaving");
+        }
         schedule(2 + cfg.panic.responseDelayTicks, () -> panicEscape(client, "said our name"));
     }
 
@@ -288,6 +302,81 @@ public class PigLureStateMachine {
         recentResponses.addLast(pick);
         while (recentResponses.size() > cap) recentResponses.poll();
         return list.get(pick);
+    }
+
+    // ---------- proximity harassment ----------
+    // a player parked in the bot's face is almost always a person checking
+    // whether it's a bot. first sustained contact -> a shoo line; if they
+    // linger -> freeze, stare at them a couple seconds, then probably bail
+    private Player closePlayer;
+    private int closeTicks;
+    private boolean proxWarned;
+    private int proxWarnedAt;
+    private int proxPauseUntil;
+    private int proxCooldownUntil;
+
+    // returns true while it's holding the stare pause (patrol stays frozen)
+    private boolean tickProximity(Minecraft client) {
+        LocalPlayer p = client.player;
+        if (!cfg.proximity.enabled || tick < proxCooldownUntil) {
+            closeTicks = 0; closePlayer = null; proxWarned = false;
+            return false;
+        }
+        Player near = null;
+        double bd = cfg.proximity.radius * cfg.proximity.radius;
+        for (Player pl : client.level.players()) {
+            if (pl == p) continue;
+            double d = pl.distanceToSqr(p);
+            if (d < bd) { bd = d; near = pl; }
+        }
+        if (near != closePlayer) { // different person stepped in, restart the clock
+            closePlayer = near;
+            closeTicks = 0;
+            proxWarned = false;
+        }
+        if (near == null) return false;
+        closeTicks++;
+
+        if (proxPauseUntil > 0) { // frozen mid-stare
+            Navigator.lookAt(p, near.getEyePosition());
+            if (tick >= proxPauseUntil) {
+                proxPauseUntil = 0;
+                proxCooldownUntil = tick + cfg.proximity.cooldownTicks;
+                if (Math.random() < cfg.proximity.leaveChance) {
+                    panicEscape(client, near.getName().getString() + " wouldn't back off");
+                } else {
+                    say(client, "proximity: stared them down, carrying on");
+                }
+            }
+            return true; // stay paused
+        }
+        if (!proxWarned && closeTicks > cfg.proximity.warnAfterTicks) {
+            proxWarned = true;
+            proxWarnedAt = tick;
+            if (tryTalk()) {
+                String line = pickShoo();
+                schedule(2, () -> {
+                    if (client.player != null) client.player.connection.sendChat(line);
+                });
+                say(client, "proximity: " + near.getName().getString() + " too close - told to move");
+            } else {
+                say(client, "proximity: " + near.getName().getString()
+                        + " too close - talk on cooldown, not responding");
+            }
+        } else if (proxWarned && tick - proxWarnedAt > cfg.proximity.escalateAfterTicks) {
+            // still standing there: stop everything and hold eye contact
+            nav.cancel();
+            proxPauseUntil = tick + cfg.proximity.stareTicks;
+            say(client, "proximity: " + near.getName().getString()
+                    + " still there - pausing to stare");
+        }
+        return proxPauseUntil > 0;
+    }
+
+    private String pickShoo() {
+        java.util.List<String> list = PigLurerClient.shooResponses;
+        if (list == null || list.isEmpty()) return "go away";
+        return list.get((int) (Math.random() * list.size()));
     }
 
     public boolean isRecordingPath() {
@@ -659,6 +748,9 @@ public class PigLureStateMachine {
                 return;
             }
         }
+        // someone parked in our face - shoo/stare logic; a true return
+        // means we're holding the freeze, so patrol stays paused too
+        if (hubPhase == 0 && stashPhase == 0 && tickProximity(client)) return;
         if (tick - lastScanTick >= cfg.scanIntervalTicks) {
             lastScanTick = tick;
             String ourName = p.getName().getString();
