@@ -43,7 +43,7 @@ public class PigLureStateMachine {
     private int herdAimNudges = -1;
     private int herdAimAt;
     private int herdOrbitBudget;
-    private int approachEtaUntil;   // deadline for reaching the pig
+    private int approachStallUntil; // deadline for the next block of progress
     private double approachBestDist = Double.MAX_VALUE;
     private int stallNudges;
     private int lastPunchTick;
@@ -682,7 +682,7 @@ public class PigLureStateMachine {
         orbClicks = 0;
         tokenReceived = false;
         orbCharged = false;
-        approachEtaUntil = 0;
+        approachStallUntil = 0;
         approachBestDist = Double.MAX_VALUE;
         herdOrbitBudget = 0;
     }
@@ -1157,20 +1157,21 @@ public class PigLureStateMachine {
         }
 
         double dist = p.position().distanceTo(Sense.center(pig));
-        // ETA watchdog: budget ~8b/s travel + 5s slack. Every real distance
-        // improvement re-estimates from what's left, so a blown ETA means
-        // it isn't getting closer - drop the pig, /hub, restart the lap
-        if (approachEtaUntil == 0) {
+        // progress watchdog: every full block closer resets a ~4s stall
+        // window (5s head start on entry). No block of real progress
+        // inside the window = wedged or pathing in circles - drop the
+        // pig, /hub, restart the lap
+        if (approachStallUntil == 0) {
             approachBestDist = dist;
-            approachEtaUntil = tick + (int) (dist / 8.0 * 20) + 100;
+            approachStallUntil = tick + 100;
         }
-        if (dist < approachBestDist - 0.3) {
+        if (dist < approachBestDist - 1.0) {
             approachBestDist = dist;
-            approachEtaUntil = tick + (int) (dist / 8.0 * 20) + 60;
+            approachStallUntil = tick + 80;
         }
-        if (tick > approachEtaUntil) {
+        if (tick > approachStallUntil) {
             clearCtx();
-            transition(client, S.IDLE_SCAN, "approach ETA blown");
+            transition(client, S.IDLE_SCAN, "approach stalled - no progress");
             beginRelobby(client, "pig unreachable");
             return;
         }
