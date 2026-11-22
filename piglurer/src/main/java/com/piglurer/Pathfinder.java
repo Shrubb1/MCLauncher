@@ -3,7 +3,9 @@ package com.piglurer;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
@@ -18,8 +20,8 @@ import java.util.PriorityQueue;
 // Grid A* over walkable block columns: step up/down ledges, around walls
 // and hedges - replaces straight-line bump steering for longer moves.
 public final class Pathfinder {
-    private static final int MAX_EXPANDED = 6000;
-    private static final int MAX_PATH = 90;
+    private static final int MAX_EXPANDED = 16000;
+    private static final int MAX_PATH = 240;
     // level, +1 jump, -1/-2/-3 drops (bigger drops are not pathed)
     private static final int[] DY_ORDER = { 0, 1, -1, -2, -3 };
 
@@ -113,14 +115,28 @@ public final class Pathfinder {
         return out;
     }
 
-    // a cell is walkable when feet and head are clear of motion-blocking
-    // blocks and there's a surface below low enough to stand on
+    // a cell is walkable when feet and head are logically passable and
+    // there's a surface below low enough to stand on
     private static boolean walkable(ClientLevel w, BlockPos p) {
-        return !solid(w, p) && !solid(w, p.above()) && standable(w, p.below());
+        return passable(w, p) && passable(w, p.above()) && standable(w, p.below());
+    }
+
+    // the same check vanilla mobs use - open doors and trapdoors count as
+    // passable, solids and closed doors don't. blocksMotion treated every
+    // door's cell as solid and could never route through a real doorway
+    // (why it refused to walk inside the bartender's building)
+    private static boolean passable(ClientLevel w, BlockPos p) {
+        BlockState s = w.getBlockState(p);
+        if (s.isAir()) return true;
+        if (s.liquid() || s.is(Blocks.FIRE) || s.is(Blocks.SOUL_FIRE)
+                || s.is(Blocks.CAMPFIRE) || s.is(Blocks.SOUL_CAMPFIRE)) {
+            return false;
+        }
+        return s.isPathfindable(PathComputationType.LAND);
     }
 
     private static boolean solid(ClientLevel w, BlockPos p) {
-        return w.getBlockState(p).blocksMotion();
+        return !passable(w, p);
     }
 
     // standable = the block's collision top reaches at most 1 block up

@@ -73,6 +73,12 @@ public class Navigator {
         return active;
     }
 
+    // true while an A* route is being followed - false means either
+    // close-range straight steering or "couldn't find a way through"
+    public boolean hasPath() {
+        return path != null;
+    }
+
     public double distTo(LocalPlayer p) {
         if (target == null) return Double.MAX_VALUE;
         return horizontal(p.position(), target);

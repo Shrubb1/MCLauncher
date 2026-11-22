@@ -1121,8 +1121,10 @@ public class PigLureStateMachine {
             return;
         }
         if (tick - enteredAt > APPROACH_TIMEOUT_TICKS) {
+            boolean routed = nav.hasPath();
             clearCtx();
-            transition(client, S.IDLE_SCAN, "approach timeout");
+            transition(client, S.IDLE_SCAN,
+                    routed ? "approach timeout - stuck" : "approach timeout - no route");
             return;
         }
 
