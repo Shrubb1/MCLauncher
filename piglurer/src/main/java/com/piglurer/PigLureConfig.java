@@ -53,6 +53,9 @@ public class PigLureConfig {
     public ShopCfg shop = new ShopCfg();
     public int restockThreshold = 1;
     public int loopDelayTicks = 60;         // 3s
+    // random +- spread on every timed action so clicks don't land on the
+    // exact same tick each loop - 0 disables
+    public int clickJitterTicks = 5;
 
     public static class GoalCfg {
         public String mode = "lastClickPos";

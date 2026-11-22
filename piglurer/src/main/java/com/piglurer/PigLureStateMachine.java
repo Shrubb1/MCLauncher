@@ -53,8 +53,17 @@ public class PigLureStateMachine {
 
     private void schedule(int delayTicks, Runnable r) {
         int id = System.identityHashCode(r);
-        delayed.add(new int[] { tick + delayTicks, id });
+        delayed.add(new int[] { tick + jittered(delayTicks), id });
         delayedTasks.put(id, r);
+    }
+
+    // +/- clickJitterTicks around the base delay so every timed action
+    // lands somewhere in a window rather than a fixed tick
+    private int jittered(int ticks) {
+        int j = cfg.clickJitterTicks;
+        if (j <= 0) return ticks;
+        return Math.max(1, ticks - j
+                + (int) (Math.random() * (2 * j + 1)));
     }
 
     private void runDelayed() {
@@ -221,7 +230,8 @@ public class PigLureStateMachine {
             }
         }
 
-        shopBusyUntil = tick + cfg.shop.verifyDelayTicks;
+        // busy window covers the worst-case jittered verify delay
+        shopBusyUntil = tick + cfg.shop.verifyDelayTicks + cfg.clickJitterTicks;
         schedule(cfg.shop.verifyDelayTicks, () -> {
             if (state != S.RESTOCKING) return;
             int n = Sense.countOrbs(client.player.getInventory(), cfg.orbItemName);
