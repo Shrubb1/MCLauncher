@@ -4264,18 +4264,26 @@ class LauncherApp(ctk.CTk):
             if have_java is None or have_java < need_java:
                 self.ui_call(self._set_status,
                              f"Java {need_java} needed - downloading...")
-                jpath = core.download_java(
-                    need_java, config.CONFIG_DIR / "java",
-                    progress=lambda p: self.ui_call(
-                        self._set_status,
-                        f"Downloading Java {need_java}... {p}%"))
+                jpath = None
+                for _ in range(2):  # one retry - transient net hiccups
+                    jpath = core.download_java(
+                        need_java, config.CONFIG_DIR / "java",
+                        progress=lambda p: self.ui_call(
+                            self._set_status,
+                            f"Downloading Java {need_java}... {p}%"))
+                    if jpath:
+                        break
                 if jpath:
                     java = jpath
                     settings = dict(self.settings)
                     settings["java_path"] = jpath
-                else:
-                    self.ui_call(self._set_status,
-                                 "Java download failed - trying anyway...")
+                elif have_java is None:
+                    # no runnable java at all - trying anyway just makes
+                    # mll/Popen die on the missing exe as a raw WinError
+                    raise RuntimeError(
+                        f"Java {need_java} is required but isn't installed "
+                        "and the download failed - check the internet "
+                        "connection/antivirus, then press Play again")
             callback = {
                 "setStatus": lambda s: self.ui_call(self._set_status, s),
                 "setProgress": lambda p: self.ui_call(self._set_progress, p, getattr(self, "_cb_max", 0)),
@@ -4330,10 +4338,14 @@ class LauncherApp(ctk.CTk):
                         else:
                             cmod_jar = None  # no fabric for this version
 
-            if not core.is_installed(version_id, self.settings["game_dir"]):
+            game_dir = self.settings.get("game_dir") \
+                or config.default_game_dir()
+            os.makedirs(game_dir, exist_ok=True)
+            settings["game_dir"] = game_dir
+            if not core.is_installed(version_id, game_dir):
                 self.ui_call(self._set_status, f"Installing {version_id}...")
                 version_id = core.install_version(
-                    loader_id, mc_version, loader_version, self.settings["game_dir"], java, callback
+                    loader_id, mc_version, loader_version, game_dir, java, callback
                 )
 
             if instance_id:
