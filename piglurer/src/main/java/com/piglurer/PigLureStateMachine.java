@@ -215,6 +215,7 @@ public class PigLureStateMachine {
     private int hubPhase;
     private int hubPhaseUntil;
     private int relobbyCount;
+    private boolean pigFoundThisLap;   // any pig job during the current lap
 
     private boolean recordingPath;
     private Vec3 lastPathPoint;
@@ -334,6 +335,12 @@ public class PigLureStateMachine {
     }
 
     private void onPatrolLap(Minecraft client) {
+        if (pigFoundThisLap) {
+            // saw at least one pig this lap - lobby's alive, run it again
+            pigFoundThisLap = false;
+            say(client, "patrol lap done - pig seen, running another lap");
+            return;
+        }
         if (!cfg.hubRelobby || client.player == null) {
             say(client, "patrol lap done, no pig - looping");
             return;
@@ -341,12 +348,25 @@ public class PigLureStateMachine {
         beginRelobby(client);
     }
 
+    // the recorded hub script is the lobby change - /hub only fires when
+    // there's no script to run
     private void beginRelobby(Minecraft client) {
         relobbyCount++;
-        say(client, "patrol lap done, no pig - /hub for a fresh lobby");
-        client.player.connection.sendCommand("hub");
-        hubPhase = 1;
-        hubPhaseUntil = tick + cfg.hubWaitTicks;
+        pigFoundThisLap = false;
+        if (cfg.hub.pos != null || !cfg.hub.steps.isEmpty()) {
+            say(client, "no pig this lap - running hub change script");
+            if (cfg.hub.pos != null) {
+                hubPhase = 2; // walk to the hub spot first
+                hubPhaseUntil = tick + 300;
+            } else {
+                startHubSteps(client);
+            }
+        } else {
+            say(client, "no pig this lap - /hub for a fresh lobby");
+            client.player.connection.sendCommand("hub");
+            hubPhase = 1;
+            hubPhaseUntil = tick + cfg.hubWaitTicks;
+        }
     }
 
     private void tickHubFlow(Minecraft client) {
@@ -411,7 +431,9 @@ public class PigLureStateMachine {
         }
         say(client, "replaying hub script (" + cfg.hub.steps.size() + " steps)");
         hubPhase = 3;
-        hubPhaseUntil = tick + at + 20;
+        // script end + transfer settle time before the player-count check -
+        // counting mid-swap would read the old lobby
+        hubPhaseUntil = tick + at + cfg.hubWaitTicks;
     }
 
     // "Players (N)" appears as a row in the SkyBlock tab list - read every
@@ -480,6 +502,7 @@ public class PigLureStateMachine {
         hubPhase = 0;
         relobbyCount = 0;
         fastLaps = 0;
+        pigFoundThisLap = false;
         transition(c, S.CHECK_ORBS, "enabled");
     }
 
@@ -548,6 +571,7 @@ public class PigLureStateMachine {
                 patrolIndex = -1;
                 hubPhase = 0;
                 relobbyCount = 0;
+                pigFoundThisLap = true;
                 clearCtx();
                 pig = found;
                 transition(client, S.APPROACHING_PIG,
