@@ -539,20 +539,12 @@ public class PigLureStateMachine {
         // pig instantly and the hub flow never runs (infinite loop)
         relobbyRequired = true;
         pigFoundThisLap = false;
-        if (cfg.hub.pos != null || !cfg.hub.steps.isEmpty()) {
-            say(client, reason + " - running hub change script");
-            if (cfg.hub.pos != null) {
-                hubPhase = 2; // walk to the hub spot first
-                hubPhaseUntil = tick + 300;
-            } else {
-                startHubSteps(client);
-            }
-        } else {
-            say(client, reason + " - /hub for a fresh lobby");
-            client.player.connection.sendCommand("hub");
-            hubPhase = 1;
-            hubPhaseUntil = tick + cfg.hubWaitTicks;
-        }
+        patrolIndex = -1; // repath from the nearest waypoint after landing
+        // plain /hub teleports into a fresh lobby - no NPC walk, no script
+        say(client, reason + " - /hub for a fresh lobby");
+        client.player.connection.sendCommand("hub");
+        hubPhase = 1;
+        hubPhaseUntil = tick + cfg.hubWaitTicks;
     }
 
     private void tickHubFlow(Minecraft client) {
@@ -560,12 +552,7 @@ public class PigLureStateMachine {
         switch (hubPhase) {
             case 1 -> { // lobby swap in progress
                 if (tick < hubPhaseUntil) return;
-                if (cfg.hub.pos != null) {
-                    hubPhase = 2;
-                    hubPhaseUntil = tick + 300; // walk timeout
-                } else {
-                    startHubSteps(client);
-                }
+                hubPhase = 4; // landed - straight to the player-count check
             }
             case 2 -> { // walk to the saved hub spot
                 Vec3 hp = new Vec3(cfg.hub.pos[0], cfg.hub.pos[1], cfg.hub.pos[2]);
