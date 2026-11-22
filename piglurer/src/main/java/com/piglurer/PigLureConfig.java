@@ -66,8 +66,12 @@ public class PigLureConfig {
         public double clickRadius = 3.5;
         public int verifyDelayTicks = 24;
         public int maxAttempts = 5;
-        public Integer buySlot = null;      // GUI slot to click if a screen opens
+        public Integer navSlot = null;      // first GUI slot that opens the trade screen
+        public Integer buySlot = null;      // final GUI slot to click (fallback if buyCount unset)
+        public Integer buyCount = null;     // click the stack with this count (e.g. 64 = bulk orbs)
         public int buyClicks = 1;
+        public int navDelayTicks = 10;      // wait for first GUI before nav click
+        public int buyDelayTicks = 12;      // wait for trade GUI before buy click
     }
 
     public static PigLureConfig load() {

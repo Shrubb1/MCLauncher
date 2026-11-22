@@ -90,6 +90,22 @@ public final class PigLureCommands {
                     c.getSource().sendFeedback(Component.literal("buy slot = " + PigLurerClient.config.shop.buySlot));
                     return 1;
                 })))
+            .then(ClientCommands.literal("navslot")
+                .then(ClientCommands.argument("slot", IntegerArgumentType.integer(-1)).executes(c -> {
+                    int slot = IntegerArgumentType.getInteger(c, "slot");
+                    PigLurerClient.config.shop.navSlot = slot < 0 ? null : slot;
+                    PigLurerClient.config.save();
+                    c.getSource().sendFeedback(Component.literal("nav slot = " + PigLurerClient.config.shop.navSlot));
+                    return 1;
+                })))
+            .then(ClientCommands.literal("buycount")
+                .then(ClientCommands.argument("count", IntegerArgumentType.integer(-1)).executes(c -> {
+                    int n = IntegerArgumentType.getInteger(c, "count");
+                    PigLurerClient.config.shop.buyCount = n < 0 ? null : n;
+                    PigLurerClient.config.save();
+                    c.getSource().sendFeedback(Component.literal("buy count = " + PigLurerClient.config.shop.buyCount));
+                    return 1;
+                })))
             .then(ClientCommands.literal("herdstyle")
                 .then(ClientCommands.argument("style", StringArgumentType.word()).executes(c -> {
                     String style = StringArgumentType.getString(c, "style");
@@ -111,7 +127,7 @@ public final class PigLureCommands {
                 })))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|buyslot|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|navslot|buyslot|buycount|orbname"));
                 return 1;
             })
         );

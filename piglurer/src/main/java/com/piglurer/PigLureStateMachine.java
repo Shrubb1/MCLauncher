@@ -206,13 +206,18 @@ public class PigLureStateMachine {
             }
         }
 
-        // if the shop opened a GUI with a buy slot configured, click it
-        if (cfg.shop.buySlot != null) {
-            int slot = cfg.shop.buySlot;
+        // multi-step GUI flow: click navSlot in the first screen to reach
+        // the trade screen, then buy - either the stack whose count matches
+        // buyCount (the bulk option) or a fixed slot
+        if (cfg.shop.navSlot != null) {
+            schedule(cfg.shop.navDelayTicks, () -> clickNav(client));
+        }
+        if (cfg.shop.buyCount != null || cfg.shop.buySlot != null) {
+            int base = (cfg.shop.navSlot != null ? cfg.shop.navDelayTicks : 0)
+                    + cfg.shop.buyDelayTicks;
             int clicks = Math.max(1, cfg.shop.buyClicks);
             for (int i = 0; i < clicks; i++) {
-                int delay = 8 + i * 6;
-                schedule(delay, () -> clickBuySlot(client, slot));
+                schedule(base + i * 6, () -> clickBuy(client));
             }
         }
 
@@ -232,6 +237,58 @@ public class PigLureStateMachine {
                 say(client, "buy attempt " + shopAttempts + "/" + cfg.shop.maxAttempts);
             }
         });
+    }
+
+    private void clickNav(Minecraft client) {
+        if (client.gui.screen() instanceof AbstractContainerScreen<?> hs) {
+            try {
+                client.gameMode.handleContainerInput(
+                        hs.getMenu().containerId, cfg.shop.navSlot, 0,
+                        ContainerInput.PICKUP, client.player);
+                say(client, "nav click slot " + cfg.shop.navSlot);
+            } catch (Exception e) {
+                say(client, "nav click failed: " + e.getMessage());
+            }
+        } else {
+            say(client, "§cno GUI open for nav click - wrong shop target?");
+        }
+    }
+
+    // buy by stack count first (the bulk option e.g. x64 orbs), buySlot
+    // as fallback; name match preferred but count alone wins if needed
+    private void clickBuy(Minecraft client) {
+        if (!(client.gui.screen() instanceof AbstractContainerScreen<?> hs)) {
+            say(client, "§cno GUI open for buy click");
+            return;
+        }
+        if (cfg.shop.buyCount != null) {
+            if (clickStackByCount(client, hs, true)) return;
+            clickStackByCount(client, hs, false);
+            return;
+        }
+        clickBuySlot(client, cfg.shop.buySlot);
+    }
+
+    private boolean clickStackByCount(Minecraft client,
+            AbstractContainerScreen<?> hs, boolean requireName) {
+        net.minecraft.world.inventory.AbstractContainerMenu menu = hs.getMenu();
+        String needle = cfg.orbItemName.toLowerCase();
+        for (net.minecraft.world.inventory.Slot s : menu.slots) {
+            ItemStack st = s.getItem();
+            if (st.isEmpty() || st.getCount() != cfg.shop.buyCount) continue;
+            if (requireName && !st.getHoverName().getString()
+                    .toLowerCase().contains(needle)) continue;
+            int idx = menu.slots.indexOf(s);
+            client.gameMode.handleContainerInput(
+                    menu.containerId, idx, 0, ContainerInput.PICKUP, client.player);
+            say(client, "clicked buy x" + cfg.shop.buyCount + " '"
+                    + st.getHoverName().getString() + "' in slot " + idx);
+            return true;
+        }
+        if (!requireName) {
+            say(client, "§cno stack of " + cfg.shop.buyCount + " in the open GUI");
+        }
+        return false;
     }
 
     private void clickBuySlot(Minecraft client, int slot) {
