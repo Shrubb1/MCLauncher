@@ -23,21 +23,49 @@ public class Navigator {
     private double detourAngleDeg = 0;
     private int detourTicks = 0;
 
+    // A* path state - repathed on interval, on dest change, or on failure retry
+    private java.util.List<Vec3> path;
+    private int pathIdx;
+    private int repathIn;
+
     public Navigator(Minecraft client, PigLureConfig cfg) {
         this.client = client;
         this.cfg = cfg;
     }
 
     public void setTarget(Vec3 t, double dist) {
+        boolean destChanged = target == null || t.distanceTo(target) > 2.5;
         this.target = t;
         this.arriveDist = dist;
         this.active = true;
         this.stuckTicks = 0;
         this.detourAngleDeg = 0;
+        if (destChanged || repathIn <= 0) repath();
+    }
+
+    private void repath() {
+        if (client.level == null || client.player == null || target == null) return;
+        // short hops steer straight - a path is worse than useless up close
+        if (horizontal(client.player.position(), target) < 4.0) {
+            path = null;
+            repathIn = 15;
+            return;
+        }
+        java.util.List<Vec3> found = Pathfinder.find(
+                client.level, client.player.position(), target);
+        if (found != null && !found.isEmpty()) {
+            path = found;
+            pathIdx = 0;
+            repathIn = 25;
+        } else {
+            path = null;
+            repathIn = 60; // retry failed searches less often
+        }
     }
 
     public void cancel() {
         this.active = false;
+        this.path = null;
         releaseKeys();
     }
 
@@ -60,29 +88,37 @@ public class Navigator {
         if (p == null) return;
         applyLook(p);
         if (!active || target == null) return;
+        if (--repathIn <= 0) repath();
 
         if (horizontal(p.position(), target) <= arriveDist) {
             releaseKeys();
             return;
         }
 
+        // walk the computed path a node at a time; no path -> steer straight
+        Vec3 pos = p.position();
+        Vec3 steer = target;
+        if (path != null) {
+            while (pathIdx < path.size() && horizontal(pos, path.get(pathIdx)) < 0.5) pathIdx++;
+            if (pathIdx < path.size()) steer = path.get(pathIdx);
+        }
+
         // ease toward the travel direction at the tracking rate - walking
         // sweeps, doesn't flick
-        double wantYaw = yawTo(p.getEyePosition(), target) + detourAngleDeg;
+        double wantYaw = yawTo(p.getEyePosition(), steer) + detourAngleDeg;
         p.setYRot(stepAngle(p.getYRot(), (float) wantYaw, cfg.trackYawSpeedDeg));
         p.setXRot(stepAngle(p.getXRot(), 0f, cfg.trackPitchSpeedDeg));
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 
-        // only hop when genuinely blocked a moment or the target's above -
+        // only hop when genuinely blocked a moment or the next node's above -
         // touching a wall for a tick shouldn't mean a jump
         boolean needJump = (p.horizontalCollision && stuckTicks > 5)
-                || target.y > p.getY() + 0.5
+                || steer.y > p.getY() + 0.5
                 || p.isInWater();
         client.options.keyJump.setDown(needJump);
 
         // stuck detection -> detour sideways for a while, then straighten out
-        Vec3 pos = p.position();
         if (lastPos == null || pos.distanceToSqr(lastPos) > 0.01) {
             stuckTicks = 0;
             lastPos = pos;
