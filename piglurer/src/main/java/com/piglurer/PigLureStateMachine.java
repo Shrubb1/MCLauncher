@@ -670,13 +670,33 @@ public class PigLureStateMachine {
     // orb click actually landed (the orb plate swallows interact() and
     // says nothing otherwise)
     public void onGameChat(String text) {
-        if (!enabled() || !text.contains("SHINY!")) return;
-        if (text.contains("received a shiny token")) {
+        if (!enabled()) return;
+        String l = text.toLowerCase();
+        // "the orb expired" (or despawned/disappeared) while we still have
+        // a pending orb - bail the lobby and start over
+        if ((state == S.INTERACTING_GOAL || orbAnchor != null)
+                && l.contains("orb")
+                && (l.contains("expired") || l.contains("despawned") || l.contains("disappeared"))) {
+            expireOrb(Minecraft.getInstance());
+            return;
+        }
+        if (!text.contains("SHINY")) return;
+        if (l.contains("received a shiny token")) {
             tokenReceived = true;
-        } else if (text.contains("orb is charged") && !orbCharged) {
+        } else if (l.contains("orb is charged") && !orbCharged) {
             orbCharged = true;
             say(Minecraft.getInstance(), "§d" + text.trim());
         }
+    }
+
+    // the orb timed out before the token landed - /hub for a fresh lobby,
+    // then patrol picks up from the nearest waypoint like a no-pig lap
+    private void expireOrb(Minecraft client) {
+        say(client, "§corb expired - /hub and restarting");
+        clearCtx();
+        patrolIndex = -1;
+        transition(client, S.IDLE_SCAN, "orb expired");
+        beginRelobby(client, "orb expired");
     }
 
     public void enable(Minecraft c) {
