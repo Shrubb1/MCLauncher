@@ -2,24 +2,30 @@ package com.piglurer;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 // Steering-based mover: real client input (W + jump), real physics packets.
-// Fine for flat-ish arenas; swap for Baritone if your map needs real pathfinding.
+// Turns are rate-limited so the camera sweeps instead of snapping.
 public class Navigator {
     private final Minecraft client;
+    private final PigLureConfig cfg;
     private Vec3 target;
     private double arriveDist = 0.8;
     private boolean active = false;
     public boolean sprint = true;
+
+    // pending aim point set by lookAt() - applied gradually each tick
+    private static Vec3 pendingLook;
 
     private Vec3 lastPos;
     private int stuckTicks = 0;
     private double detourAngleDeg = 0;
     private int detourTicks = 0;
 
-    public Navigator(Minecraft client) {
+    public Navigator(Minecraft client, PigLureConfig cfg) {
         this.client = client;
+        this.cfg = cfg;
     }
 
     public void setTarget(Vec3 t, double dist) {
@@ -51,17 +57,19 @@ public class Navigator {
 
     public void tick() {
         LocalPlayer p = client.player;
-        if (!active || p == null || target == null) return;
+        if (p == null) return;
+        applyLook(p);
+        if (!active || target == null) return;
 
         if (horizontal(p.position(), target) <= arriveDist) {
             releaseKeys();
             return;
         }
 
-        // face the target (with the current detour offset) and hold W
-        double yaw = yawTo(p.getEyePosition(), target) + detourAngleDeg;
-        p.setYRot((float) yaw);
-        p.setXRot(0f);
+        // ease toward the travel direction instead of snapping the view
+        double wantYaw = yawTo(p.getEyePosition(), target) + detourAngleDeg;
+        p.setYRot(stepAngle(p.getYRot(), (float) wantYaw, cfg.lookYawSpeedDeg));
+        p.setXRot(stepAngle(p.getXRot(), 0f, cfg.lookPitchSpeedDeg));
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 
@@ -86,6 +94,30 @@ public class Navigator {
         }
     }
 
+    // gradually turn toward pendingLook; while walking, steering owns yaw
+    // and the look only tilts the head (pitch)
+    private void applyLook(LocalPlayer p) {
+        if (pendingLook == null) return;
+        Vec3 eye = p.getEyePosition();
+        float wantPitch = (float) pitchTo(eye, pendingLook);
+        p.setXRot(stepAngle(p.getXRot(), wantPitch, cfg.lookPitchSpeedDeg));
+        if (active) return;
+        float wantYaw = (float) yawTo(eye, pendingLook);
+        p.setYRot(stepAngle(p.getYRot(), wantYaw, cfg.lookYawSpeedDeg));
+        if (Math.abs(Mth.wrapDegrees(wantYaw - p.getYRot())) < 2
+                && Math.abs(wantPitch - p.getXRot()) < 2) {
+            pendingLook = null;
+        }
+    }
+
+    // move current toward want by at most maxStep degrees, wrapping angles
+    private static float stepAngle(float cur, float want, float maxStep) {
+        float diff = Mth.wrapDegrees(want - cur);
+        if (diff > maxStep) diff = maxStep;
+        else if (diff < -maxStep) diff = -maxStep;
+        return cur + diff;
+    }
+
     private void releaseKeys() {
         client.options.keyUp.setDown(false);
         client.options.keyJump.setDown(false);
@@ -103,9 +135,19 @@ public class Navigator {
         return -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)));
     }
 
-    public static void lookAt(LocalPlayer p, Vec3 target) {
+    // true once the view is already within ~6 degrees of the target - use
+    // to gate clicks so they fire after the head turn lands
+    public static boolean aimedAt(LocalPlayer p, Vec3 target) {
         Vec3 eye = p.getEyePosition();
-        p.setYRot((float) yawTo(eye, target));
-        p.setXRot((float) pitchTo(eye, target));
+        return Math.abs(Mth.wrapDegrees(yawTo(eye, target) - p.getYRot())) < 6
+                && Math.abs(pitchTo(eye, target) - p.getXRot()) < 6;
+    }
+
+    public static void lookAt(LocalPlayer p, Vec3 target) {
+        pendingLook = target;
+    }
+
+    public static void clearLook() {
+        pendingLook = null;
     }
 }

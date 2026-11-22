@@ -146,6 +146,14 @@ public final class PigLureCommands {
                     c.getSource().sendFeedback(Component.literal("herd style = " + style));
                     return 1;
                 })))
+            .then(ClientCommands.literal("pigdebug").executes(c -> {
+                // dump nearby entities + their text - shows what the "pigs"
+                // actually are when scanning won't match them
+                Minecraft mc = Minecraft.getInstance();
+                if (mc.player == null || mc.level == null) return 0;
+                Sense.debugEntities(mc.level, mc.player, c.getSource());
+                return 1;
+            }))
             .then(ClientCommands.literal("listgui").executes(c -> {
                 // dump the open container's slots so navslot/buyslot numbers
                 // are exact - index, count, name
@@ -175,7 +183,7 @@ public final class PigLureCommands {
                 })))
             .executes(c -> {
                 c.getSource().sendFeedback(Component.literal(
-                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|recordpath|pathpoint|patrol|listgui|navslot|buyslot|buycount|orbname"));
+                        "/piglure start|stop|status|setshop|setshopclick|setgoal|goalmode|herdstyle|recordbuy|recordpath|pathpoint|patrol|pigdebug|listgui|navslot|buyslot|buycount|orbname"));
                 return 1;
             })
         );

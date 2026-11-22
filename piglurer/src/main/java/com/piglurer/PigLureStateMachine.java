@@ -391,7 +391,7 @@ public class PigLureStateMachine {
 
     public void tick(Minecraft client) {
         tick++;
-        if (nav == null) nav = new Navigator(client);
+        if (nav == null) nav = new Navigator(client, cfg);
         if (recording) recordingTick(client);
         if (recordingPath) pathRecordingTick(client);
         if (state == S.DISABLED) return;
@@ -478,14 +478,16 @@ public class PigLureStateMachine {
 
         // multi-step GUI flow: click navSlot in the first screen to reach
         // the trade screen, then buy - either the stack whose count matches
-        // buyCount (the bulk option) or a fixed slot
-        int extra = 0;
+        // buyCount (the bulk option) or a fixed slot. Delays count from the
+        // activation click, which fires after the head turn settles
+        int off = cfg.lookSettleTicks;
+        int extra = off;
         if (cfg.shop.navSlot != null) {
-            schedule(cfg.shop.navDelayTicks, () -> clickNav(client));
-            extra = Math.max(extra, cfg.shop.navDelayTicks);
+            schedule(off + cfg.shop.navDelayTicks, () -> clickNav(client));
+            extra = Math.max(extra, off + cfg.shop.navDelayTicks);
         }
         if (cfg.shop.buyCount != null || cfg.shop.buySlot != null) {
-            int base = (cfg.shop.navSlot != null ? cfg.shop.navDelayTicks : 0)
+            int base = off + (cfg.shop.navSlot != null ? cfg.shop.navDelayTicks : 0)
                     + cfg.shop.buyDelayTicks;
             int clicks = Math.max(1, cfg.shop.buyClicks);
             for (int i = 0; i < clicks; i++) {
@@ -496,25 +498,39 @@ public class PigLureStateMachine {
         scheduleVerify(client, extra);
     }
 
+    // aims first, fires after lookSettleTicks so the head turn lands before
+    // the click instead of snap-aim-click
     private void activateShop(Minecraft client, Vec3 target) {
         LocalPlayer p = client.player;
+        Vec3 aim = null;
+        Runnable fire = null;
         if (cfg.shop.click != null) {
             BlockPos bp = new BlockPos(cfg.shop.click[0], cfg.shop.click[1], cfg.shop.click[2]);
             Vec3 hit = Vec3.atCenterOf(bp);
-            Navigator.lookAt(p, hit);
-            client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND, new BlockHitResult(hit, Direction.UP, bp, false));
-            say(client, "activateBlock @" + bp.toShortString());
+            aim = hit;
+            fire = () -> {
+                client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND,
+                        new BlockHitResult(hit, Direction.UP, bp, false));
+                say(client, "activateBlock @" + bp.toShortString());
+            };
         } else {
             Entity shopkeeper = Sense.nearestShopInteractable(client.level, target, cfg.shop.clickRadius);
             if (shopkeeper != null) {
-                Navigator.lookAt(p, Sense.center(shopkeeper));
-                client.gameMode.interact(p, shopkeeper, new EntityHitResult(shopkeeper), InteractionHand.MAIN_HAND);
-                say(client, "activateEntity " + shopkeeper.getName().getString());
-            } else {
-                say(client, "no shop.click and no entity nearby — swinging");
-                p.swing(InteractionHand.MAIN_HAND);
+                aim = Sense.center(shopkeeper);
+                fire = () -> {
+                    client.gameMode.interact(p, shopkeeper,
+                            new EntityHitResult(shopkeeper), InteractionHand.MAIN_HAND);
+                    say(client, "activateEntity " + shopkeeper.getName().getString());
+                };
             }
         }
+        if (fire == null) {
+            say(client, "no shop.click and no entity nearby — swinging");
+            p.swing(InteractionHand.MAIN_HAND);
+            return;
+        }
+        Navigator.lookAt(p, aim);
+        schedule(cfg.lookSettleTicks, fire);
     }
 
     // replay the recorded buy script step-by-step; if the recording didn't
@@ -526,7 +542,7 @@ public class PigLureStateMachine {
         int at = 0;
         if (!opensShop) {
             activateShop(client, new Vec3(cfg.shop.pos[0], cfg.shop.pos[1], cfg.shop.pos[2]));
-            at += cfg.shop.navDelayTicks;
+            at += cfg.lookSettleTicks + cfg.shop.navDelayTicks;
         }
         for (PigLureConfig.BuyStep s : cfg.shop.steps) {
             at += Math.min(Math.max(s.delta, 4), 80);
@@ -568,17 +584,24 @@ public class PigLureStateMachine {
                     face = Direction.UP;
                 }
                 Vec3 hit = Vec3.atCenterOf(bp);
+                Direction f = face;
                 Navigator.lookAt(p, hit);
-                client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND,
-                        new BlockHitResult(hit, face, bp, false));
-                say(client, "replay block click @" + bp.toShortString());
+                schedule(cfg.lookSettleTicks, () -> {
+                    client.gameMode.useItemOn(p, InteractionHand.MAIN_HAND,
+                            new BlockHitResult(hit, f, bp, false));
+                    say(client, "replay block click @" + bp.toShortString());
+                });
             }
             case "entity" -> {
                 Entity e = findRecordedEntity(client, s);
                 if (e != null) {
                     Navigator.lookAt(p, Sense.center(e));
-                    client.gameMode.interact(p, e, new EntityHitResult(e), InteractionHand.MAIN_HAND);
-                    say(client, "replay entity " + e.getName().getString());
+                    final Entity target = e;
+                    schedule(cfg.lookSettleTicks, () -> {
+                        client.gameMode.interact(p, target,
+                                new EntityHitResult(target), InteractionHand.MAIN_HAND);
+                        say(client, "replay entity " + target.getName().getString());
+                    });
                 } else {
                     say(client, "§creplay: no " + s.entityType + " near recorded spot");
                 }
@@ -711,30 +734,34 @@ public class PigLureStateMachine {
     private void clickPig(Minecraft client, LocalPlayer p) {
         nav.cancel();
         if (cfg.equipOrbBeforeClick) equipOrb(client, p);
-        Navigator.lookAt(p, Sense.center(pig));
+        final Pig target = pig;
+        Navigator.lookAt(p, Sense.center(target));
 
-        goalPos = pig.position(); // pig's position at right-click time = herd target
+        goalPos = target.position(); // pig's position at right-click time = herd target
         // same as /piglure setgoal - persists it so mode=fixed and
         // later sessions use this spot too
-        cfg.goal.pos = new double[] { pig.getX(), pig.getY(), pig.getZ() };
+        cfg.goal.pos = new double[] { target.getX(), target.getY(), target.getZ() };
         PigLurerClient.config.save();
-        client.gameMode.interact(p, pig, new EntityHitResult(pig), InteractionHand.MAIN_HAND);
-        if (cfg.useInteractAt) {
-            client.gameMode.interact(p, pig,
-                    new EntityHitResult(pig, Sense.center(pig)), InteractionHand.MAIN_HAND);
-        }
-        say(client, "activated pig @" + fmt(pig.position()) + " goal=" + fmt(goalPos));
 
         launchPending = true;
-        schedule(cfg.pigLaunchDelayTicks, () -> {
+        // let the head turn land before the click goes out
+        schedule(cfg.lookSettleTicks, () -> {
+            client.gameMode.interact(p, target, new EntityHitResult(target), InteractionHand.MAIN_HAND);
+            if (cfg.useInteractAt) {
+                client.gameMode.interact(p, target,
+                        new EntityHitResult(target, Sense.center(target)), InteractionHand.MAIN_HAND);
+            }
+            say(client, "activated pig @" + fmt(target.position()) + " goal=" + fmt(goalPos));
+        });
+        schedule(cfg.lookSettleTicks + cfg.pigLaunchDelayTicks, () -> {
             launchPending = false;
             if (state != S.APPROACHING_PIG) return;
-            if (pig == null || !pig.isAlive()) {
+            if (!target.isAlive()) {
                 orbAnchor = goalPos;
                 transition(client, S.INTERACTING_GOAL, "pig despawned instantly");
                 return;
             }
-            stallRef = pig.position();
+            stallRef = target.position();
             stallCheckedAt = tick;
             stallNudges = 0;
             transition(client, S.HERDING_TO_GOAL, "pig launched — herding");
@@ -878,6 +905,7 @@ public class PigLureStateMachine {
         }
         nav.cancel();
         Navigator.lookAt(p, Sense.center(orb));
+        if (!Navigator.aimedAt(p, Sense.center(orb))) return; // land the look, click next tick
         client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
         if (cfg.useInteractAt) {
             client.gameMode.interact(p, orb,
@@ -890,6 +918,7 @@ public class PigLureStateMachine {
 
     private void clickGoalBlock(Minecraft client, Vec3 anchor) {
         nav.setTarget(Vec3.atCenterOf(BlockPos.containing(anchor)), 2.0);
+        Navigator.lookAt(client.player, Vec3.atCenterOf(BlockPos.containing(anchor)));
         schedule(30, () -> {
             if (orbClicked || state != S.INTERACTING_GOAL) return;
             BlockPos bp = BlockPos.containing(anchor);

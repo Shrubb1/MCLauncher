@@ -15,6 +15,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.client.player.LocalPlayer;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 
 import java.util.regex.Pattern;
 
@@ -63,14 +66,50 @@ public final class Sense {
             double dy = e.getY() - pig.getY();
             if (dy < -0.5) continue;
             String text = entityText(e);
-            if (text.equalsIgnoreCase(pigName)) continue; // just the name label
+            if (text.toLowerCase().contains(pigName.toLowerCase())) continue; // just the name label
             double d = e.position().distanceTo(pig.position());
             if (d < bestDist) { bestDist = d; best = e; }
         }
         return best;
     }
 
-    // Nearest usable pig: named pigName, and either unclaimed or tagged with our IGN.
+    // SkyBlock-style nameplates live on a floating text entity above the
+    // mob, not the mob's own custom name - accept either as the pig's name
+    private static boolean isNamedPig(ClientLevel world, Pig pig, String pigName) {
+        if (entityText(pig).toLowerCase().contains(pigName)) return true;
+        for (Entity e : world.entitiesForRendering()) {
+            if (e == pig || !isFloatingText(e)) continue;
+            if (horizontalDist(e.position(), pig.position()) > 3.0) continue;
+            double dy = e.getY() - pig.getY();
+            if (dy < -0.5 || dy > 3.5) continue;
+            if (entityText(e).toLowerCase().contains(pigName)) return true;
+        }
+        return false;
+    }
+
+    // /piglure pigdebug - dump nearby entities with their type + text so we
+    // can see what the "pigs" actually are when matching fails
+    public static void debugEntities(ClientLevel world, LocalPlayer p, FabricClientCommandSource src) {
+        int shown = 0;
+        for (Entity e : world.entitiesForRendering()) {
+            double d = e.position().distanceTo(p.position());
+            if (d > 24) continue;
+            String text = entityText(e);
+            String type = BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString();
+            src.sendFeedback(Component.literal(
+                    (e instanceof Pig ? ">> " : "   ") + type.replace("minecraft:", "")
+                    + " @" + String.format("%.1f", d) + "b " + e.blockPosition().toShortString()
+                    + (text.isEmpty() ? "" : " '" + text.substring(0, Math.min(40, text.length())) + "'")));
+            if (++shown >= 20) {
+                src.sendFeedback(Component.literal("...(truncated)"));
+                break;
+            }
+        }
+        if (shown == 0) src.sendFeedback(Component.literal("no entities within 24b"));
+    }
+
+    // Nearest usable pig: named pigName (own name or its nameplate), and
+    // either unclaimed or tagged with our IGN.
     public static Pig findShinyPig(ClientLevel world, Vec3 from, PigLureConfig cfg, String ourName) {
         String pigName = cfg.pigName.toLowerCase();
         String ownerTag = cfg.targetOwnerTag.isEmpty() ? ourName.toLowerCase() : cfg.targetOwnerTag.toLowerCase();
@@ -79,7 +118,7 @@ public final class Sense {
         for (Entity e : world.entitiesForRendering()) {
             if (!(e instanceof Pig pig)) continue;
             if (e.position().distanceTo(from) > cfg.scanRange) continue;
-            if (!entityText(e).toLowerCase().contains(pigName)) continue;
+            if (!isNamedPig(world, pig, pigName)) continue;
             Entity tag = findOwnerTag(world, pig, cfg.pigName);
             if (tag != null) {
                 double dy = tag.getY() - pig.getY();

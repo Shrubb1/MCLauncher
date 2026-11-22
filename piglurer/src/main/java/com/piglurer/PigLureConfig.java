@@ -57,6 +57,12 @@ public class PigLureConfig {
     // exact same tick each loop - 0 disables
     public int clickJitterTicks = 5;
 
+    // head/camera turning is rate-limited (deg per tick) instead of
+    // instant snaps; clicks wait lookSettleTicks for the turn to land
+    public float lookYawSpeedDeg = 22;
+    public float lookPitchSpeedDeg = 16;
+    public int lookSettleTicks = 8;
+
     // patrol: while scanning, walk the recorded waypoints in a loop; a full
     // lap with no pig found triggers /hub for a fresh lobby
     public PathCfg path = new PathCfg();
