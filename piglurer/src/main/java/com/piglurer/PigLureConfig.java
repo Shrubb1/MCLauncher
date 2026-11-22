@@ -38,8 +38,8 @@ public class PigLureConfig {
     public double herdStagingDistance = 2.5; // inside the ~3b repel radius
     public int punchCooldownTicks = 12;   // ~0.6s between punches
     public double attackRange = 3.0;
-    public int herdTimeoutTicks = 2400;
-    public int stallCheckTicks = 60;        // 3s
+    public int herdTimeoutTicks = 1600;
+    public int stallCheckTicks = 25;        // ~1.2s - catch stalls quickly
     public double stallMinDisplacement = 0.5;
     public double stallAngleDeg = 30;
 
@@ -58,10 +58,14 @@ public class PigLureConfig {
     public int clickJitterTicks = 5;
 
     // head/camera turning is rate-limited (deg per tick) instead of
-    // instant snaps; clicks wait lookSettleTicks for the turn to land
+    // instant snaps; clicks wait lookSettleTicks for the turn to land.
+    // track* is the slower chase rate while moving so a moving pig target
+    // sweeps instead of flicking
     public float lookYawSpeedDeg = 22;
     public float lookPitchSpeedDeg = 16;
     public int lookSettleTicks = 8;
+    public float trackYawSpeedDeg = 8;
+    public float trackPitchSpeedDeg = 10;
 
     // patrol: while scanning, walk the recorded waypoints in a loop; a full
     // lap with no pig found triggers /hub for a fresh lobby

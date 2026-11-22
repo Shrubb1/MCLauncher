@@ -308,7 +308,7 @@ public class PigLureStateMachine {
             advancePatrol(client, wps.size());
             return;
         }
-        if (tick - waypointStuckAt > 240) { // ~12s - unreachable, skip it
+        if (tick - waypointStuckAt > 160) { // ~8s - unreachable, skip it
             say(client, "patrol: waypoint " + (patrolIndex + 1) + " unreachable - skipping");
             advancePatrol(client, wps.size());
             return;
@@ -345,16 +345,16 @@ public class PigLureStateMachine {
             say(client, "patrol lap done, no pig - looping");
             return;
         }
-        beginRelobby(client);
+        beginRelobby(client, "no pig this lap");
     }
 
     // the recorded hub script is the lobby change - /hub only fires when
     // there's no script to run
-    private void beginRelobby(Minecraft client) {
+    private void beginRelobby(Minecraft client, String reason) {
         relobbyCount++;
         pigFoundThisLap = false;
         if (cfg.hub.pos != null || !cfg.hub.steps.isEmpty()) {
-            say(client, "no pig this lap - running hub change script");
+            say(client, reason + " - running hub change script");
             if (cfg.hub.pos != null) {
                 hubPhase = 2; // walk to the hub spot first
                 hubPhaseUntil = tick + 300;
@@ -362,7 +362,7 @@ public class PigLureStateMachine {
                 startHubSteps(client);
             }
         } else {
-            say(client, "no pig this lap - /hub for a fresh lobby");
+            say(client, reason + " - /hub for a fresh lobby");
             client.player.connection.sendCommand("hub");
             hubPhase = 1;
             hubPhaseUntil = tick + cfg.hubWaitTicks;
@@ -397,7 +397,7 @@ public class PigLureStateMachine {
                 int n = hubPlayerCount(client);
                 if (n >= 0 && n > cfg.hub.maxPlayers && relobbyCount < cfg.hub.maxRelobbies) {
                     say(client, "Players (" + n + ") > " + cfg.hub.maxPlayers + " - relobbying");
-                    beginRelobby(client);
+                    beginRelobby(client, "Players (" + n + ") in lobby");
                     return;
                 }
                 if (n < 0) {
@@ -503,6 +503,15 @@ public class PigLureStateMachine {
         relobbyCount = 0;
         fastLaps = 0;
         pigFoundThisLap = false;
+        // don't run in a populated lobby - check the tab count first and
+        // re-lobby before doing anything else
+        int n = hubPlayerCount(c);
+        if (n > cfg.hub.maxPlayers) {
+            transition(c, S.IDLE_SCAN, "enabled");
+            beginRelobby(c, "Players (" + n + ") in lobby - changing before starting");
+            return;
+        }
+        if (n >= 0) say(c, "Players (" + n + ") - lobby ok");
         transition(c, S.CHECK_ORBS, "enabled");
     }
 
@@ -556,7 +565,10 @@ public class PigLureStateMachine {
 
     private void tickScan(Minecraft client) {
         LocalPlayer p = client.player;
-        if (Sense.countOrbs(p.getInventory(), cfg.orbItemName) < cfg.restockThreshold) {
+        // orb check is held while a lobby change is in flight - it resumes
+        // once the hub flow finishes
+        if (hubPhase == 0
+                && Sense.countOrbs(p.getInventory(), cfg.orbItemName) < cfg.restockThreshold) {
             transition(client, S.CHECK_ORBS, "orbs ran out");
             return;
         }

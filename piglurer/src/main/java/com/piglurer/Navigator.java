@@ -66,10 +66,11 @@ public class Navigator {
             return;
         }
 
-        // ease toward the travel direction instead of snapping the view
+        // ease toward the travel direction at the tracking rate - walking
+        // sweeps, doesn't flick
         double wantYaw = yawTo(p.getEyePosition(), target) + detourAngleDeg;
-        p.setYRot(stepAngle(p.getYRot(), (float) wantYaw, cfg.lookYawSpeedDeg));
-        p.setXRot(stepAngle(p.getXRot(), 0f, cfg.lookPitchSpeedDeg));
+        p.setYRot(stepAngle(p.getYRot(), (float) wantYaw, cfg.trackYawSpeedDeg));
+        p.setXRot(stepAngle(p.getXRot(), 0f, cfg.trackPitchSpeedDeg));
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 
@@ -85,7 +86,7 @@ public class Navigator {
         if (lastPos == null || pos.distanceToSqr(lastPos) > 0.01) {
             stuckTicks = 0;
             lastPos = pos;
-        } else if (++stuckTicks > 30) {
+        } else if (++stuckTicks > 12) {
             detourAngleDeg = (detourAngleDeg <= 0 ? 45 : -60);
             detourTicks = 0;
             stuckTicks = 0;
@@ -102,7 +103,8 @@ public class Navigator {
         if (pendingLook == null) return;
         Vec3 eye = p.getEyePosition();
         float wantPitch = (float) pitchTo(eye, pendingLook);
-        p.setXRot(stepAngle(p.getXRot(), wantPitch, cfg.lookPitchSpeedDeg));
+        p.setXRot(stepAngle(p.getXRot(), wantPitch,
+                active ? cfg.trackPitchSpeedDeg : cfg.lookPitchSpeedDeg));
         if (active) return;
         float wantYaw = (float) yawTo(eye, pendingLook);
         p.setYRot(stepAngle(p.getYRot(), wantYaw, cfg.lookYawSpeedDeg));
