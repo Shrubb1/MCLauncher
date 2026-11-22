@@ -44,7 +44,10 @@ public class PigLureStateMachine {
     private int shopBusyUntil;
     private boolean launchPending;
     private boolean orbClicked;
-    private int orbCooldownUntil;
+    private int orbConfirmUntil;
+    private int orbClicks;          // click bursts fired at this orb
+    private boolean tokenReceived;  // "SHINY! You received a shiny token" seen
+    private boolean orbCharged;     // "SHINY! The orb is charged" seen (info)
     private long lastWarnMs;
 
     // tiny tick scheduler for delayed window clicks / verifies
@@ -216,6 +219,9 @@ public class PigLureStateMachine {
     private int hubPhaseUntil;
     private int relobbyCount;
     private boolean pigFoundThisLap;   // any pig job during the current lap
+    // a forced relobby (start-gate, panic escape) must run to completion -
+    // a pig sighting mid-swap cannot cancel it like a patrol-lap relobby
+    private boolean relobbyRequired;
 
     private boolean recordingPath;
     private Vec3 lastPathPoint;
@@ -279,6 +285,7 @@ public class PigLureStateMachine {
         stashPhase = 0;
         client.player.connection.sendCommand("hub");
         transition(client, S.IDLE_SCAN, "panic escape");
+        relobbyRequired = true;
         hubPhase = 1;
         hubPhaseUntil = tick + cfg.hubWaitTicks;
     }
@@ -571,6 +578,7 @@ public class PigLureStateMachine {
                 if (tick >= hubPhaseUntil) {
                     hubPhase = 0;
                     relobbyCount = 0;
+                    relobbyRequired = false;
                 }
             }
         }
@@ -652,6 +660,23 @@ public class PigLureStateMachine {
         shopAttempts = 0;
         launchPending = false;
         orbClicked = false;
+        orbClicks = 0;
+        tokenReceived = false;
+        orbCharged = false;
+    }
+
+    // chat feed: SHINY! lines are the only reliable confirm - "orb is
+    // charged" means the pig went in, "received a shiny token" means the
+    // orb click actually landed (the orb plate swallows interact() and
+    // says nothing otherwise)
+    public void onGameChat(String text) {
+        if (!enabled() || !text.contains("SHINY!")) return;
+        if (text.contains("received a shiny token")) {
+            tokenReceived = true;
+        } else if (text.contains("orb is charged") && !orbCharged) {
+            orbCharged = true;
+            say(Minecraft.getInstance(), "§d" + text.trim());
+        }
     }
 
     public void enable(Minecraft c) {
@@ -663,11 +688,13 @@ public class PigLureStateMachine {
         pigFoundThisLap = false;
         panicCooldownUntil = 0;
         stashPhase = 0;
+        relobbyRequired = false;
         // don't run in a populated lobby - check the tab count first and
         // re-lobby before doing anything else
         int n = hubPlayerCount(c);
         if (n > cfg.hub.maxPlayers) {
             transition(c, S.IDLE_SCAN, "enabled");
+            relobbyRequired = true;
             beginRelobby(c, "Players (" + n + ") in lobby - changing before starting");
             return;
         }
@@ -751,7 +778,11 @@ public class PigLureStateMachine {
         // someone parked in our face - shoo/stare logic; a true return
         // means we're holding the freeze, so patrol stays paused too
         if (hubPhase == 0 && stashPhase == 0 && tickProximity(client)) return;
-        if (tick - lastScanTick >= cfg.scanIntervalTicks) {
+        // a forced relobby (start-gate/panic) suppresses pig scanning until
+        // it finishes - except phase 5, whose whole job is scanning the new
+        // lobby, where a find also clears the requirement
+        boolean scanBlocked = relobbyRequired && hubPhase != 0 && hubPhase != 5;
+        if (!scanBlocked && tick - lastScanTick >= cfg.scanIntervalTicks) {
             lastScanTick = tick;
             String ourName = p.getName().getString();
             Pig found = Sense.findShinyPig(client.level, p.position(), cfg, ourName);
@@ -762,6 +793,7 @@ public class PigLureStateMachine {
                 patrolIndex = -1;
                 hubPhase = 0;
                 relobbyCount = 0;
+                relobbyRequired = false;
                 pigFoundThisLap = true;
                 clearCtx();
                 pig = found;
@@ -1234,11 +1266,28 @@ public class PigLureStateMachine {
             transition(client, S.COOLDOWN, "no orb anchor");
             return;
         }
+        // the token line is the real success signal - a client-side
+        // "click" on a display plate means nothing
+        if (tokenReceived) {
+            clearCtx();
+            transition(client, S.COOLDOWN, "token received");
+            return;
+        }
         if (orbClicked) {
-            if (tick >= orbCooldownUntil) {
-                clearCtx();
-                transition(client, S.COOLDOWN, "orb clicked");
+            if (tick >= orbConfirmUntil) {
+                if (orbClicks >= 3) {
+                    clearCtx();
+                    transition(client, S.COOLDOWN, "orb clicks unconfirmed - giving up");
+                } else {
+                    orbClicked = false;
+                    say(client, "no token line - clicking again");
+                }
             }
+            return;
+        }
+        if (tick - enteredAt > cfg.orbSearchTimeoutTicks + 600) {
+            clearCtx();
+            transition(client, S.COOLDOWN, "orb window expired");
             return;
         }
 
@@ -1255,29 +1304,45 @@ public class PigLureStateMachine {
             return;
         }
 
-        double dist = p.position().distanceTo(Sense.center(orb));
-        if (dist > cfg.orbInteractRange) {
-            // the orb often sits in a hedge/pit you can't quite step into -
-            // after ~4s of trying, accept a slightly longer throw instead
-            // of jumping at the wall forever
-            if (tick - enteredAt > 80 && dist <= cfg.orbInteractRange + 1.5) {
-                nav.cancel();
-            } else {
-                nav.setTarget(Sense.center(orb), cfg.orbInteractRange - 0.5);
+        // stand under the floating SHINY ORB - it hovers ~head height, so
+        // the interactable is best reached looking up from beneath it.
+        // nav targets a GROUND-level point under it - aiming the nav at
+        // the plate's own y would just make it jump
+        Vec3 orbPos = Sense.center(orb);
+        double dxz = Math.hypot(orbPos.x - p.getX(), orbPos.z - p.getZ());
+        if (dxz > 1.4) {
+            // orbs sit in hedge pits half the time - if the approach has
+            // stalled a while, fire from wherever we managed to reach
+            if (!(tick - enteredAt > 80 && dxz <= cfg.orbInteractRange + 1.5)) {
+                nav.setTarget(new Vec3(orbPos.x, p.getY(), orbPos.z), 1.2);
                 return;
             }
         }
         nav.cancel();
-        Navigator.lookAt(p, Sense.center(orb));
-        if (!Navigator.aimedAt(p, Sense.center(orb))) return; // land the look, click next tick
-        client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
-        if (cfg.useInteractAt) {
-            client.gameMode.interact(p, orb,
-                    new EntityHitResult(orb, Sense.center(orb)), InteractionHand.MAIN_HAND);
-        }
-        say(client, "activated orb " + orb.getName().getString() + " @" + fmt(orb.position()));
+        Navigator.lookAt(p, orbPos);
+        if (!Navigator.aimedAt(p, orbPos)) return; // land the look, click next tick
+        fireOrbClick(client, orb, p, orbPos);
         orbClicked = true;
-        orbCooldownUntil = tick + 8;
+        orbConfirmUntil = tick + 70; // ~3.5s for the token line to arrive
+    }
+
+    // the "orb" entity is usually a floating text/display plate where
+    // interact() is a silent no-op - so fire a bare right-click toward it
+    // too and let the server ray-trace the real target, then sweep the
+    // aim downward with follow-up clicks in case the clickable sits lower
+    private void fireOrbClick(Minecraft client, Entity orb, LocalPlayer p, Vec3 at) {
+        orbClicks++;
+        client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
+        client.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+        for (int k = 1; k <= 4; k++) {
+            final int i = k;
+            schedule(i * 3, () -> {
+                Navigator.lookAt(p, at.add(0, -0.15 * i, 0));
+                client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
+                client.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+            });
+        }
+        say(client, "orb click burst #" + orbClicks + " @" + fmt(at));
     }
 
     private void clickGoalBlock(Minecraft client, Vec3 anchor) {
@@ -1292,7 +1357,8 @@ public class PigLureStateMachine {
                     new BlockHitResult(hit, Direction.UP, bp, false));
             say(client, "activateBlock fallback @" + bp.toShortString());
             orbClicked = true;
-            orbCooldownUntil = tick + 8;
+            orbClicks++;
+            orbConfirmUntil = tick + 70;
         });
     }
 

@@ -107,7 +107,11 @@ public class Navigator {
         // sweeps, doesn't flick
         double wantYaw = yawTo(p.getEyePosition(), steer) + detourAngleDeg;
         p.setYRot(stepAngle(p.getYRot(), (float) wantYaw, cfg.trackYawSpeedDeg));
-        p.setXRot(stepAngle(p.getXRot(), 0f, cfg.trackPitchSpeedDeg));
+        // only level the pitch while nothing's asking the head to look -
+        // otherwise steering and applyLook fight every tick = head jitter
+        if (pendingLook == null) {
+            p.setXRot(stepAngle(p.getXRot(), 0f, cfg.trackPitchSpeedDeg));
+        }
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 

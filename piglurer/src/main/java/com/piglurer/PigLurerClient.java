@@ -47,7 +47,9 @@ public class PigLurerClient implements ClientModInitializer {
         // leave, a bot keyword -> leave instantly. Only while the bot runs.
         ClientReceiveMessageEvents.GAME.register((msg, overlay) -> {
             if (overlay || machine == null) return;
-            checkPanic(Minecraft.getInstance(), msg.getString());
+            String text = msg.getString();
+            machine.onGameChat(text);   // SHINY! orb-charged / token lines
+            checkPanic(Minecraft.getInstance(), text);
         });
         ClientReceiveMessageEvents.CHAT.register((msg, signed, sender, params, ts) -> {
             if (machine == null) return;

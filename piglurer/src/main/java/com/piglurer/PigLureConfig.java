@@ -61,11 +61,11 @@ public class PigLureConfig {
     // instant snaps; clicks wait lookSettleTicks for the turn to land.
     // track* is the slower chase rate while moving so a moving pig target
     // sweeps instead of flicking
-    public float lookYawSpeedDeg = 22;
-    public float lookPitchSpeedDeg = 16;
+    public float lookYawSpeedDeg = 12;
+    public float lookPitchSpeedDeg = 9;
     public int lookSettleTicks = 8;
-    public float trackYawSpeedDeg = 8;
-    public float trackPitchSpeedDeg = 10;
+    public float trackYawSpeedDeg = 5;
+    public float trackPitchSpeedDeg = 6;
 
     // patrol: while scanning, walk the recorded waypoints in a loop; a full
     // lap with no pig found triggers /hub for a fresh lobby
