@@ -18,8 +18,9 @@ public class Navigator {
     // pending aim point set by lookAt() - applied gradually each tick
     private static Vec3 pendingLook;
 
-    private Vec3 lastPos;
-    private int stuckTicks = 0;
+    private double lastSteerDist = Double.MAX_VALUE;
+    private int progressTicks = 0;
+    private int blockedTicks = 0;
     private double detourAngleDeg = 0;
     private int detourTicks = 0;
 
@@ -38,15 +39,22 @@ public class Navigator {
         this.target = t;
         this.arriveDist = dist;
         this.active = true;
-        this.stuckTicks = 0;
+        this.progressTicks = 0;
+        this.blockedTicks = 0;
+        this.lastSteerDist = Double.MAX_VALUE;
         this.detourAngleDeg = 0;
         if (destChanged || repathIn <= 0) repath();
     }
 
     private void repath() {
+        repath(false);
+    }
+
+    private void repath(boolean force) {
         if (client.level == null || client.player == null || target == null) return;
-        // short hops steer straight - a path is worse than useless up close
-        if (horizontal(client.player.position(), target) < 4.0) {
+        // short hops steer straight - a path is worse than useless up
+        // close, unless we're wedged: a wall can sit one block away
+        if (!force && horizontal(client.player.position(), target) < 4.0) {
             path = null;
             repathIn = 15;
             return;
@@ -153,28 +161,32 @@ public class Navigator {
         client.options.keyUp.setDown(true);
         client.options.keySprint.setDown(sprint);
 
-        // only hop when genuinely blocked a moment or the next node's above -
-        // touching a wall for a tick shouldn't mean a jump
-        boolean needJump = (p.horizontalCollision && stuckTicks > 5)
+        // blockedTicks counts collisions even while sliding along a wall
+        // (position keeps changing so movement-based checks never catch
+        // it) - hop when genuinely blocked a moment, swimming, or when
+        // the steer point's up a ledge
+        if (p.horizontalCollision) blockedTicks++;
+        else blockedTicks = 0;
+        boolean needJump = blockedTicks > 5
                 || steer.y > p.getY() + 0.5
                 || p.isInWater();
         client.options.keyJump.setDown(needJump);
 
-        // stuck -> repath around whatever's blocking (the A* sees the
-        // block, a blind 45-degree sidestep doesn't) and only nudge a
-        // little while the new path computes - no more big spins
-        if (lastPos == null || pos.distanceToSqr(lastPos) > 0.01) {
-            stuckTicks = 0;
-            lastPos = pos;
-        } else if (++stuckTicks > 12) {
-            repath();
-            // only nudge sideways when no route exists - a fresh path is
-            // the real fix, blind sidesteps read as random spins
+        // stuck = distance to the steer point isn't closing. Sliding
+        // sideways along a wall still "moves", which is why this never
+        // fired against the ledge while a wall sat one block away
+        double dSteer = horizontal(pos, steer);
+        if (dSteer < lastSteerDist - 0.02) {
+            lastSteerDist = dSteer;
+            progressTicks = 0;
+        } else if (++progressTicks > 12) {
+            repath(true); // force A* even up close - route around the wall
             if (path == null) {
                 detourAngleDeg = (detourAngleDeg <= 0 ? 20 : -20);
                 detourTicks = 0;
             }
-            stuckTicks = 0;
+            progressTicks = 0;
+            lastSteerDist = dSteer;
         }
         if (detourAngleDeg != 0 && ++detourTicks > 25) {
             detourAngleDeg = 0;
