@@ -238,6 +238,7 @@ public class PigLureStateMachine {
     // a forced relobby (start-gate, panic escape) must run to completion -
     // a pig sighting mid-swap cannot cancel it like a patrol-lap relobby
     private boolean relobbyRequired;
+    private int lobbyPollAt;        // next tab-list census tick
 
     private boolean recordingPath;
     private Vec3 lastPathPoint;
@@ -533,6 +534,10 @@ public class PigLureStateMachine {
     // there's no script to run
     private void beginRelobby(Minecraft client, String reason) {
         relobbyCount++;
+        // suppress pig scanning until the swap finishes - without this a
+        // relobby triggered by an unreachable pig re-detects that same
+        // pig instantly and the hub flow never runs (infinite loop)
+        relobbyRequired = true;
         pigFoundThisLap = false;
         if (cfg.hub.pos != null || !cfg.hub.steps.isEmpty()) {
             say(client, reason + " - running hub change script");
@@ -815,6 +820,17 @@ public class PigLureStateMachine {
                 && Sense.countOrbs(p.getInventory(), cfg.orbItemName) < cfg.restockThreshold) {
             transition(client, S.CHECK_ORBS, "orbs ran out");
             return;
+        }
+        // recurring census: the lobby was empty when we settled, but people
+        // join - recount every ~60s and right after each orb collection
+        // (lobbyPollAt is zeroed on token receipt). If it filled, relobby
+        if (hubPhase == 0 && stashPhase == 0 && tick >= lobbyPollAt) {
+            lobbyPollAt = tick + 1200;
+            int n = hubPlayerCount(client);
+            if (n > cfg.hub.maxPlayers) {
+                beginRelobby(client, "Players (" + n + ") joined lobby");
+                return;
+            }
         }
         // enderchest stash - a full inventory pauses patrol while each ec
         // page gets filled; keep-named items (orbs/tokens) stay behind
@@ -1347,12 +1363,25 @@ public class PigLureStateMachine {
 
         Navigator.lookAt(p, Sense.center(pig));
 
-        if ("punch".equals(cfg.herdStyle)
-                && p.position().distanceTo(pig.position()) <= cfg.attackRange
-                && tick - lastPunchTick >= cfg.punchCooldownTicks) {
-            lastPunchTick = tick;
-            client.gameMode.attack(p, pig);
-            say(client, "punched pig toward goal");
+        // aligned punch: knock it forward only when the bot is dead
+        // behind the pig AND the pig faces the orb - player->pig and
+        // pig->orb within ~20deg, pig's own yaw within ~35deg (its head
+        // wanders). An off-axis hit would just shove it sideways
+        Vec3 toPig = new Vec3(pig.getX() - p.getX(), 0, pig.getZ() - p.getZ());
+        Vec3 pigToGoal = new Vec3(goal.x - pig.getX(), 0, goal.z - pig.getZ());
+        if (toPig.lengthSqr() > 0.01 && pigToGoal.lengthSqr() > 0.01) {
+            Vec3 pigToGoalN = pigToGoal.normalize();
+            boolean behind = toPig.normalize().dot(pigToGoalN) > 0.94;
+            double yawRad = Math.toRadians(pig.getYRot());
+            boolean facing = new Vec3(-Math.sin(yawRad), 0, Math.cos(yawRad))
+                    .dot(pigToGoalN) > 0.82;
+            if (behind && facing
+                    && p.position().distanceTo(pig.position()) <= cfg.attackRange
+                    && tick - lastPunchTick >= cfg.punchCooldownTicks) {
+                lastPunchTick = tick;
+                client.gameMode.attack(p, pig);
+                say(client, "punched pig toward orb");
+            }
         }
 
         nav.setTarget(navTarget, 0.4);
@@ -1419,6 +1448,7 @@ public class PigLureStateMachine {
         // the token line is the real success signal - a client-side
         // "click" on a display plate means nothing
         if (tokenReceived) {
+            lobbyPollAt = 0; // census the lobby again right after collecting
             clearCtx();
             transition(client, S.COOLDOWN, "token received");
             return;
