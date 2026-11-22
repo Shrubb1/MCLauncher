@@ -38,6 +38,10 @@ public class PigLureStateMachine {
     private int lastScanTick = -999;
     private Vec3 stallRef;
     private int stallCheckedAt;
+    private Vec3 herdAim;
+    private Vec3 herdAimPigPos;
+    private int herdAimNudges = -1;
+    private int herdAimAt;
     private int stallNudges;
     private int lastPunchTick;
     private int shopAttempts;
@@ -666,6 +670,9 @@ public class PigLureStateMachine {
         orbAnchor = null;
         stallRef = null;
         stallNudges = 0;
+        herdAim = null;
+        herdAimPigPos = null;
+        herdAimNudges = -1;
         shopAttempts = 0;
         launchPending = false;
         orbClicked = false;
@@ -1261,24 +1268,27 @@ public class PigLureStateMachine {
         double distToGoal = pig.position().distanceTo(goal);
         double stagingDist = distToGoal <= cfg.goalDoneRadius + 0.5 ? 1.2 : cfg.herdStagingDistance;
         Vec3 staging = pig.position().add(rx * stagingDist, 0, rz * stagingDist);
-
-        // Get BEHIND the pig by walking an arc around its repel circle -
-        // a straight line to the far side cuts through the pig and shoves
-        // it away from the goal (and reads as bot steering). Only used while
-        // the path would actually cross the repel radius.
-        Vec3 navTarget = staging;
         double repelR = Math.max(3.2, cfg.herdStagingDistance + 0.7);
-        if (crossesCircle(p.position(), staging, pig.position(), repelR)) {
-            double playerAng = Math.atan2(p.getZ() - pig.getZ(), p.getX() - pig.getX());
-            double stagingAng = Math.atan2(rz, rx);
-            double diff = stagingAng - playerAng;
-            while (diff > Math.PI) diff -= 2 * Math.PI;
-            while (diff < -Math.PI) diff += 2 * Math.PI;
-            double step = Math.copySign(Math.toRadians(40), diff);
-            double nextAng = Math.abs(diff) < Math.abs(step) ? stagingAng : playerAng + step;
-            navTarget = pig.position().add(
-                    Math.cos(nextAng) * repelR, 0, Math.sin(nextAng) * repelR);
+
+        // Where we WANT to stand is geometry; where we CAN stand is the
+        // map. Score a fan of spots around the pig's repel circle by
+        // whether A* can actually route there and how much it has to
+        // detour - this is the "see where to go before moving" step that
+        // stops it aiming at spots inside walls or wandering into rooms.
+        // Rescored ~once a second, on each stall nudge, or when the pig
+        // moved since the last pick.
+        if (herdAim == null || stallNudges != herdAimNudges
+                || tick - herdAimAt > 25
+                || pig.position().distanceToSqr(herdAimPigPos) > 4.0
+                || p.position().distanceToSqr(herdAim) < 0.7) {
+            herdAim = pickHerdAim(client, p, pig.position(),
+                    Math.atan2(rz, rx), repelR, staging,
+                    crossesCircle(p.position(), staging, pig.position(), repelR));
+            herdAimNudges = stallNudges;
+            herdAimAt = tick;
+            herdAimPigPos = pig.position();
         }
+        Vec3 navTarget = herdAim;
 
         Navigator.lookAt(p, Sense.center(pig));
 
@@ -1291,6 +1301,39 @@ public class PigLureStateMachine {
         }
 
         nav.setTarget(navTarget, 0.4);
+    }
+
+    // fan of stand-spot candidates around the pig's repel circle, in
+    // degrees off the ideal behind-direction - nearer the ideal wins ties
+    private static final double[] HERD_OFFS = {
+            0, 25, -25, 50, -50, 75, -75, 100, -100, 135, -135, 160, -160, 180
+    };
+
+    // Pick a stand spot by reachability: each candidate on the repel
+    // circle gets an A* dry-run; score = angular error + route detour
+    // ratio. A spot inside a wall gets no route; one reachable only by
+    // leaving the area scores badly. Falls back to the ideal point when
+    // nothing routes (old bump behavior).
+    private Vec3 pickHerdAim(Minecraft client, LocalPlayer p, Vec3 pigPos,
+                           double baseAng, double repelR, Vec3 ideal, boolean needArc) {
+        if (!needArc) {
+            // straight shot to the staging point wouldn't cross the repel
+            // ring - use it when a route actually exists
+            java.util.List<Vec3> direct = Pathfinder.find(client.level, p.position(), ideal);
+            if (direct != null && !direct.isEmpty()) return ideal;
+        }
+        Vec3 best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (double off : HERD_OFFS) {
+            double a = baseAng + Math.toRadians(off);
+            Vec3 cand = pigPos.add(Math.cos(a) * repelR, 0, Math.sin(a) * repelR);
+            java.util.List<Vec3> route = Pathfinder.find(client.level, p.position(), cand);
+            if (route == null || route.isEmpty()) continue;
+            double score = Math.abs(off) * 0.03
+                    + route.size() / Math.max(1.0, cand.distanceTo(p.position()));
+            if (score < bestScore) { bestScore = score; best = cand; }
+        }
+        return best != null ? best : ideal;
     }
 
     // does the straight path a->b pass within r blocks of center (XZ)?
