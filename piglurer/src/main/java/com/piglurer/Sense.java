@@ -208,6 +208,19 @@ public final class Sense {
         return hitbox != null ? hitbox : anchor;
     }
 
+    // every plausible clickable entity in the orb cluster - the real
+    // interactable is usually an invisible Interaction hitbox while the
+    // text plate that findOrbEntity returns is a server-side no-op
+    public static java.util.List<Entity> findOrbClickables(ClientLevel world, Vec3 pos, PigLureConfig cfg) {
+        java.util.List<Entity> out = new java.util.ArrayList<>();
+        for (Entity e : world.entitiesForRendering()) {
+            if (e instanceof Player || e instanceof Pig) continue;
+            if (e.position().distanceToSqr(pos) > cfg.orbSearchRadius * cfg.orbSearchRadius) continue;
+            if (isOrbCandidateType(e)) out.add(e);
+        }
+        return out;
+    }
+
     public static Entity nearestShopInteractable(ClientLevel world, Vec3 pos, double radius) {
         Entity best = null;
         double bestDist = Double.MAX_VALUE;

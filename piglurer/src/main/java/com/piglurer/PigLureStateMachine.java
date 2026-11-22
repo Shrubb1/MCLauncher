@@ -43,6 +43,8 @@ public class PigLureStateMachine {
     private int herdAimNudges = -1;
     private int herdAimAt;
     private int herdOrbitBudget;
+    private int approachEtaUntil;   // deadline for reaching the pig
+    private double approachBestDist = Double.MAX_VALUE;
     private int stallNudges;
     private int lastPunchTick;
     private int shopAttempts;
@@ -680,6 +682,9 @@ public class PigLureStateMachine {
         orbClicks = 0;
         tokenReceived = false;
         orbCharged = false;
+        approachEtaUntil = 0;
+        approachBestDist = Double.MAX_VALUE;
+        herdOrbitBudget = 0;
     }
 
     // chat feed: SHINY! lines are the only reliable confirm - "orb is
@@ -1151,17 +1156,44 @@ public class PigLureStateMachine {
             return;
         }
 
+        double dist = p.position().distanceTo(Sense.center(pig));
+        // ETA watchdog: budget ~8b/s travel + 5s slack. Every real distance
+        // improvement re-estimates from what's left, so a blown ETA means
+        // it isn't getting closer - drop the pig, /hub, restart the lap
+        if (approachEtaUntil == 0) {
+            approachBestDist = dist;
+            approachEtaUntil = tick + (int) (dist / 8.0 * 20) + 100;
+        }
+        if (dist < approachBestDist - 0.3) {
+            approachBestDist = dist;
+            approachEtaUntil = tick + (int) (dist / 8.0 * 20) + 60;
+        }
+        if (tick > approachEtaUntil) {
+            clearCtx();
+            transition(client, S.IDLE_SCAN, "approach ETA blown");
+            beginRelobby(client, "pig unreachable");
+            return;
+        }
+
         nav.setTarget(Sense.center(pig), cfg.interactRange - 0.4);
         Navigator.lookAt(p, Sense.center(pig));
 
-        if (p.position().distanceTo(Sense.center(pig)) <= cfg.interactRange) {
+        if (dist <= cfg.interactRange) {
             clickPig(client, p);
         }
     }
 
     private void clickPig(Minecraft client, LocalPlayer p) {
         nav.cancel();
-        if (cfg.equipOrbBeforeClick) equipOrb(client, p);
+        // always verify an orb is actually in hand before clicking -
+        // purchased orbs can land in any slot; no orb anywhere = wasted
+        // click, so bail to the restock flow instead
+        if (!equipOrb(client, p)) {
+            say(client, "no shiny orb in inventory - restocking");
+            clearCtx();
+            transition(client, S.CHECK_ORBS, "no orb at pig click");
+            return;
+        }
         final Pig target = pig;
         Navigator.lookAt(p, Sense.center(target));
 
@@ -1200,21 +1232,24 @@ public class PigLureStateMachine {
         });
     }
 
-    private void equipOrb(Minecraft client, LocalPlayer p) {
+    private boolean equipOrb(Minecraft client, LocalPlayer p) {
         Inventory inv = p.getInventory();
         int slot = Sense.findOrbInvSlot(inv, cfg.orbItemName);
-        if (slot < 0) return;
+        if (slot < 0) return false;
         if (slot <= 8) {
             inv.setSelectedSlot(slot);
-            return;
+        } else {
+            // move it into the current hotbar slot via a swap click on the
+            // player screen handler (containerId 0): main-inv slots 9-35
+            try {
+                client.gameMode.handleContainerInput(0, slot, inv.getSelectedSlot(), ContainerInput.SWAP, p);
+            } catch (Exception e) {
+                say(client, "orb swap failed: " + e.getMessage());
+                return false;
+            }
         }
-        // move it into the current hotbar slot via a swap click on the player
-        // screen handler (containerId 0): main-inv screen slots are 9-35
-        try {
-            client.gameMode.handleContainerInput(0, slot, inv.getSelectedSlot(), ContainerInput.SWAP, p);
-        } catch (Exception e) {
-            say(client, "orb swap failed: " + e.getMessage());
-        }
+        say(client, "orb equipped from inv slot " + slot);
+        return true;
     }
 
     private Vec3 resolveGoalPos(Minecraft client) {
@@ -1446,17 +1481,31 @@ public class PigLureStateMachine {
     // aim downward with follow-up clicks in case the clickable sits lower
     private void fireOrbClick(Minecraft client, Entity orb, LocalPlayer p, Vec3 at) {
         orbClicks++;
-        client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
-        client.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+        // hit every plausible clickable in the cluster - the found entity
+        // is usually just the text plate (server no-op) while the real
+        // interactable is an Interaction hitbox / armor stand next to it
+        java.util.List<Entity> targets = Sense.findOrbClickables(client.level, at, cfg);
+        if (!targets.contains(orb)) targets.add(orb);
+        clickAll(client, p, targets, at);
         for (int k = 1; k <= 4; k++) {
             final int i = k;
             schedule(i * 3, () -> {
                 Navigator.lookAt(p, at.add(0, -0.15 * i, 0));
-                client.gameMode.interact(p, orb, new EntityHitResult(orb), InteractionHand.MAIN_HAND);
-                client.gameMode.useItem(p, InteractionHand.MAIN_HAND);
+                clickAll(client, p, targets, at);
             });
         }
-        say(client, "orb click burst #" + orbClicks + " @" + fmt(at));
+        say(client, "orb click burst #" + orbClicks + " @" + fmt(at)
+                + " targets=" + targets.size());
+    }
+
+    private void clickAll(Minecraft client, LocalPlayer p,
+                          java.util.List<Entity> targets, Vec3 at) {
+        for (Entity e : targets) {
+            if (!e.isAlive()) continue;
+            client.gameMode.interact(p, e, new EntityHitResult(e), InteractionHand.MAIN_HAND);
+            client.gameMode.interact(p, e, new EntityHitResult(e, at), InteractionHand.MAIN_HAND);
+        }
+        client.gameMode.useItem(p, InteractionHand.MAIN_HAND);
     }
 
     private void clickGoalBlock(Minecraft client, Vec3 anchor) {
